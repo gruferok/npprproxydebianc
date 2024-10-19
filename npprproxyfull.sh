@@ -505,24 +505,101 @@ function install_3proxy() {
   cd ..
 }
 
+function optimize_system() {
+  # Increase system limits
+  echo "*               soft    nofile          1000000" >> /etc/security/limits.conf
+  echo "*               hard    nofile          1000000" >> /etc/security/limits.conf
+
+  # Optimize kernel parameters
+  cat >> /etc/sysctl.conf <<EOL
+net.ipv4.ip_local_port_range = 1024 65000
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_fin_timeout = 15
+net.core.somaxconn = 65535
+net.core.netdev_max_backlog = 65535
+net.ipv4.tcp_max_syn_backlog = 65535
+net.ipv4.tcp_max_tw_buckets = 1440000
+net.ipv4.tcp_mem = 50576   64768   98152
+net.ipv4.tcp_rmem = 4096 87380 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+EOL
+
+  sysctl -p
+
+  # Increase maximum number of processes
+  echo "ulimit -n 1000000" >> /etc/profile
+  echo "ulimit -n 1000000" >> /etc/bash.bashrc
+}
+
+
 function configure_ipv6() {
   # Enable sysctl options for rerouting and bind ips from subnet to default interface
-  required_options=("conf.$interface_name.proxy_ndp" "conf.all.proxy_ndp" "conf.default.forwarding" "conf.all.forwarding" "ip_nonlocal_bind");
+  required_options=(
+    "conf.$interface_name.proxy_ndp"
+    "conf.all.proxy_ndp"
+    "conf.default.forwarding"
+    "conf.all.forwarding"
+    "ip_nonlocal_bind"
+  )
 
   for option in ${required_options[@]}; do
-    full_option="net.ipv6.$option=1";
-    if ! cat /etc/sysctl.conf | grep -v "#" | grep -q $full_option; then echo $full_option >> /etc/sysctl.conf; fi;
-  done;
+    full_option="net.ipv6.$option=1"
+    if ! cat /etc/sysctl.conf | grep -v "#" | grep -q $full_option; then
+      echo $full_option >> /etc/sysctl.conf
+    fi
+  done
 
-  sysctl -p &>> $script_log_file;
+  # Add IPv6 specific optimizations
+  cat >> /etc/sysctl.conf <<EOL
+net.ipv6.conf.all.forwarding = 1
+net.ipv6.conf.all.proxy_ndp = 1
+net.ipv6.conf.all.accept_ra = 2
+net.ipv6.conf.default.forwarding = 1
+net.ipv6.conf.default.proxy_ndp = 1
+net.ipv6.conf.default.accept_ra = 2
+net.ipv6.ip_nonlocal_bind = 1
+net.ipv6.bindv6only = 0
+EOL
 
-  if [[ $(cat /proc/sys/net/ipv6/conf/$interface_name/proxy_ndp) == 1 ]] && [[ $(cat /proc/sys/net/ipv6/ip_nonlocal_bind) == 1 ]]; then
-    echo "IPv6 network sysctl data configured successfully";
+  sysctl -p &>> $script_log_file
+
+  if [[ $(cat /proc/sys/net/ipv6/conf/$interface_name/proxy_ndp) == 1 ]] && 
+     [[ $(cat /proc/sys/net/ipv6/ip_nonlocal_bind) == 1 ]]; then
+    echo "IPv6 network sysctl data configured successfully"
   else
-    cat /etc/sysctl.conf &>> $script_log_file;
-    log_err_and_exit "Error: cannot configure IPv6 config";
-  fi;
+    cat /etc/sysctl.conf &>> $script_log_file
+    log_err_and_exit "Error: cannot configure IPv6 config"
+  fi
+
+  # Enable IPv6 forwarding
+  if ! grep -q "net.ipv6.conf.all.forwarding=1" /etc/sysctl.conf; then
+    echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
+  fi
+
+  # Apply sysctl changes
+  sysctl -p &>> $script_log_file
+
+  # Enable IPv6 if it's disabled
+  if [ -f /etc/default/grub ]; then
+    sed -i 's/ipv6.disable=1/ipv6.disable=0/' /etc/default/grub
+    update-grub &>> $script_log_file
+  fi
+
+  # Ensure IPv6 is enabled on the interface
+  if [ -f /etc/network/interfaces ]; then
+    if ! grep -q "iface $interface_name inet6 auto" /etc/network/interfaces; then
+      echo "iface $interface_name inet6 auto" >> /etc/network/interfaces
+    fi
+  fi
+
+  # Restart networking to apply changes
+  systemctl restart networking &>> $script_log_file
+
+  echo "IPv6 configuration completed successfully"
 }
+
 
 function add_to_cron() {
   delete_file_if_exists $cron_script_path;
@@ -574,22 +651,14 @@ function create_startup_script() {
   cat > $startup_script_path <<-EOF
 #!/bin/bash
 
-interface="$interface_name"
-subnet_mask="$subnet_mask"
-
 function generate_ipv6() {
-  echo ${subnet_mask}$(printf '%04x:%04x:%04x:%04x' $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)))
+  echo $(get_subnet_mask)$(printf '%04x:%04x:%04x:%04x' $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)))
 }
 
 # Create IPv6 generator script
 cat > ${user_home_dir}/ipv6_generator.sh <<EOL
 #!/bin/bash
-generate_ipv6() {
-  echo ${subnet_mask}$(printf '%04x:%04x:%04x:%04x' $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)))
-}
-ip=\$(generate_ipv6)
-echo \$ip
-ip -6 addr add \$ip/64 dev $interface
+echo \$(generate_ipv6)
 EOL
 
 chmod +x ${user_home_dir}/ipv6_generator.sh
@@ -604,12 +673,15 @@ setgid 65535
 setuid 65535
 stacksize 6291456 
 flush
-external ${user_home_dir}/ipv6_generator.sh
+maxconn 100000
+log /var/log/3proxy.log D
+rotate 30
+auth none
 
 $(if [ "$proxies_type" = "http" ]; then
-    proxy_command="proxy -6 -n -e"
+    proxy_command="proxy -6 -n"
   else
-    proxy_command="socks -6 -n -e"
+    proxy_command="socks -6 -n"
   fi
 
   for i in $(seq 1 $proxy_count); do
@@ -624,11 +696,12 @@ $(if [ "$proxies_type" = "http" ]; then
     else
       echo "auth none"
     fi
-    echo "$proxy_command -p\$(($start_port + $i - 1)) -i$backconnect_ipv4"
+    echo "$proxy_command -p\$(($start_port + $i - 1)) -i$backconnect_ipv4 -e\"${user_home_dir}/ipv6_generator.sh\""
   done)
 EOL
 
 # Start 3proxy
+ulimit -n 1000000
 ${user_home_dir}/proxyserver/3proxy/bin/3proxy ${proxyserver_config_path}
 
 # Function to rotate IPs
@@ -648,6 +721,7 @@ EOF
 
   chmod +x $startup_script_path
 }
+
 
 
 # Configure 3proxy
@@ -847,6 +921,7 @@ if is_proxyserver_installed; then
   echo -e "Proxy server already installed, reconfiguring:\n";
 else
   configure_ipv6;
+  optimize_system;  # Add this line
   install_requred_packages;
   install_3proxy;
 fi;
