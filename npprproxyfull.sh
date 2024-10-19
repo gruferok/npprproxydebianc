@@ -508,10 +508,12 @@ function install_3proxy() {
 function configure_ipv6() {
   # Enable sysctl options for rerouting and bind ips from subnet to default interface
   required_options=("conf.$interface_name.proxy_ndp" "conf.all.proxy_ndp" "conf.default.forwarding" "conf.all.forwarding" "ip_nonlocal_bind");
+
   for option in ${required_options[@]}; do
     full_option="net.ipv6.$option=1";
     if ! cat /etc/sysctl.conf | grep -v "#" | grep -q $full_option; then echo $full_option >> /etc/sysctl.conf; fi;
   done;
+
   sysctl -p &>> $script_log_file;
 
   if [[ $(cat /proc/sys/net/ipv6/conf/$interface_name/proxy_ndp) == 1 ]] && [[ $(cat /proc/sys/net/ipv6/ip_nonlocal_bind) == 1 ]]; then
@@ -576,33 +578,21 @@ function generate_ipv6() {
   echo $(get_subnet_mask)$(printf '%04x:%04x:%04x:%04x' $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)))
 }
 
-function assign_ip() {
-  local ipv6=\$(generate_ipv6)
-  ip -6 addr add \$ipv6 dev $interface_name
-  echo \$ipv6
-}
-
 function rotate_ips() {
   while true; do
-    for i in \$(seq 1 $proxy_count); do
-      new_ip=\$(generate_ipv6)
-      old_ip=\$(sed -n "\${i}p" $random_ipv6_list_file)
-      ip -6 addr del \$old_ip dev $interface_name
-      ip -6 addr add \$new_ip dev $interface_name
-      sed -i "\${i}s/.*\$/\$new_ip/" $random_ipv6_list_file
-    done
     sleep $((rotating_interval * 60))
+    echo "Rotating IPv6 addresses..."
+    killall -HUP 3proxy
   done
 }
 
-# Generate initial IPs
-> $random_ipv6_list_file
-for i in \$(seq 1 $proxy_count); do
-  generate_ipv6 >> $random_ipv6_list_file
-done
+# Create IPv6 generator script
+cat > ${user_home_dir}/ipv6_generator.sh <<EOL
+#!/bin/bash
+echo \$(generate_ipv6)
+EOL
 
-# Start IP rotation in background
-rotate_ips &
+chmod +x ${user_home_dir}/ipv6_generator.sh
 
 # Configure 3proxy
 cat > $proxyserver_config_path <<EOL
@@ -616,9 +606,9 @@ stacksize 6291456
 flush
 
 $(if [ "$proxies_type" = "http" ]; then
-    proxy_command="proxy -6 -n -a"
+    proxy_command="proxy -6 -n -a -e${user_home_dir}/ipv6_generator.sh"
   else
-    proxy_command="socks -6 -n -a"
+    proxy_command="socks -6 -n -a -e${user_home_dir}/ipv6_generator.sh"
   fi
 
   for i in $(seq 1 $proxy_count); do
@@ -633,12 +623,17 @@ $(if [ "$proxies_type" = "http" ]; then
     else
       echo "auth none"
     fi
-    echo "$proxy_command -p\$(($start_port + $i - 1)) -i$backconnect_ipv4 -e\$(assign_ip)"
+    echo "$proxy_command -p\$(($start_port + $i - 1)) -i$backconnect_ipv4"
   done)
 EOL
 
 # Start 3proxy
 ${user_home_dir}/proxyserver/3proxy/bin/3proxy ${proxyserver_config_path}
+
+# Start IP rotation if needed
+if [ $rotating_interval -ne 0 ]; then
+  rotate_ips &
+fi
 EOF
 
   chmod +x $startup_script_path
@@ -723,8 +718,8 @@ User info:
 Technical info:
   Subnet: /$subnet
   Subnet mask: $subnet_mask
-  File with generated IPv6 gateway addresses: $random_ipv6_list_file
-  Rotating interval: every $rotating_interval minutes
+  IPv6 addresses: Generated dynamically for each connection
+  Rotating interval: $(if [ $rotating_interval -ne 0 ]; then echo "every $rotating_interval minutes"; else echo "disabled"; fi)
 EOF
 }
 
