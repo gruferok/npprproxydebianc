@@ -581,35 +581,74 @@ function generate_ipv6() {
   echo ${subnet_mask}$(printf '%04x:%04x:%04x:%04x' $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)))
 }
 
-function assign_ip() {
-  local ipv6=$(generate_ipv6)
-  ip -6 addr add $ipv6/64 dev $interface
-  echo $ipv6
-}
-
-function remove_ip() {
-  ip -6 addr del $1/64 dev $interface
-}
-
-# Create IPv6 manager script
-cat > ${user_home_dir}/ipv6_manager.sh <<EOL
+# Create IPv6 generator script
+cat > ${user_home_dir}/ipv6_generator.sh <<EOL
 #!/bin/bash
-action=\$1
-ip=\$2
-
-case \$action in
-  "assign")
-    $(declare -f assign_ip)
-    assign_ip
-    ;;
-  "remove")
-    $(declare -f remove_ip)
-    remove_ip \$ip
-    ;;
-esac
+generate_ipv6() {
+  echo ${subnet_mask}$(printf '%04x:%04x:%04x:%04x' $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)))
+}
+ip=\$(generate_ipv6)
+echo \$ip
+ip -6 addr add \$ip/64 dev $interface
 EOL
 
-chmod +x ${user_home_dir}/ipv6_manager.sh
+chmod +x ${user_home_dir}/ipv6_generator.sh
+
+# Configure 3proxy
+cat > $proxyserver_config_path <<EOL
+daemon
+nserver 1.1.1.1
+nscache 65536
+timeouts 1 5 30 60 180 1800 15 60
+setgid 65535
+setuid 65535
+stacksize 6291456 
+flush
+external ${user_home_dir}/ipv6_generator.sh
+
+$(if [ "$proxies_type" = "http" ]; then
+    proxy_command="proxy -6 -n -e"
+  else
+    proxy_command="socks -6 -n -e"
+  fi
+
+  for i in $(seq 1 $proxy_count); do
+    if [ $use_random_auth = true ]; then
+      echo "auth strong"
+      echo "users user${i}:CL:pass${i}"
+      echo "allow user${i}"
+    elif is_auth_used; then
+      echo "auth strong"
+      echo "users $user:CL:$password"
+      echo "allow $user"
+    else
+      echo "auth none"
+    fi
+    echo "$proxy_command -p\$(($start_port + $i - 1)) -i$backconnect_ipv4"
+  done)
+EOL
+
+# Start 3proxy
+${user_home_dir}/proxyserver/3proxy/bin/3proxy ${proxyserver_config_path}
+
+# Function to rotate IPs
+function rotate_ips() {
+  while true; do
+    sleep $((rotating_interval * 60))
+    echo "Rotating IPv6 addresses..."
+    killall -HUP 3proxy
+  done
+}
+
+# Start IP rotation if needed
+if [ $rotating_interval -ne 0 ]; then
+  rotate_ips &
+fi
+EOF
+
+  chmod +x $startup_script_path
+}
+
 
 # Configure 3proxy
 cat > $proxyserver_config_path <<EOL
