@@ -578,14 +578,6 @@ function generate_ipv6() {
   echo $(get_subnet_mask)$(printf '%04x:%04x:%04x:%04x' $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)))
 }
 
-function rotate_ips() {
-  while true; do
-    sleep $((rotating_interval * 60))
-    echo "Rotating IPv6 addresses..."
-    killall -HUP 3proxy
-  done
-}
-
 # Create IPv6 generator script
 cat > ${user_home_dir}/ipv6_generator.sh <<EOL
 #!/bin/bash
@@ -606,9 +598,9 @@ stacksize 6291456
 flush
 
 $(if [ "$proxies_type" = "http" ]; then
-    proxy_command="proxy -6 -n -a -e${user_home_dir}/ipv6_generator.sh"
+    proxy_command="proxy -6 -n"
   else
-    proxy_command="socks -6 -n -a -e${user_home_dir}/ipv6_generator.sh"
+    proxy_command="socks -6 -n"
   fi
 
   for i in $(seq 1 $proxy_count); do
@@ -623,12 +615,21 @@ $(if [ "$proxies_type" = "http" ]; then
     else
       echo "auth none"
     fi
-    echo "$proxy_command -p\$(($start_port + $i - 1)) -i$backconnect_ipv4"
+    echo "$proxy_command -p\$(($start_port + $i - 1)) -i$backconnect_ipv4 -e\"${user_home_dir}/ipv6_generator.sh\""
   done)
 EOL
 
 # Start 3proxy
 ${user_home_dir}/proxyserver/3proxy/bin/3proxy ${proxyserver_config_path}
+
+# Function to rotate IPs
+function rotate_ips() {
+  while true; do
+    sleep $((rotating_interval * 60))
+    echo "Rotating IPv6 addresses..."
+    killall -HUP 3proxy
+  done
+}
 
 # Start IP rotation if needed
 if [ $rotating_interval -ne 0 ]; then
@@ -638,6 +639,7 @@ EOF
 
   chmod +x $startup_script_path
 }
+
 
 function close_ufw_backconnect_ports() {
   if ! is_package_installed "ufw" || [ $use_localhost = true ] || ! test -f $backconnect_proxies_file; then return; fi;
