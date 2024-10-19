@@ -574,17 +574,42 @@ function create_startup_script() {
   cat > $startup_script_path <<-EOF
 #!/bin/bash
 
+interface="$interface_name"
+subnet_mask="$subnet_mask"
+
 function generate_ipv6() {
-  echo $(get_subnet_mask)$(printf '%04x:%04x:%04x:%04x' $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)))
+  echo ${subnet_mask}$(printf '%04x:%04x:%04x:%04x' $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)))
 }
 
-# Create IPv6 generator script
-cat > ${user_home_dir}/ipv6_generator.sh <<EOL
+function assign_ip() {
+  local ipv6=$(generate_ipv6)
+  ip -6 addr add $ipv6/64 dev $interface
+  echo $ipv6
+}
+
+function remove_ip() {
+  ip -6 addr del $1/64 dev $interface
+}
+
+# Create IPv6 manager script
+cat > ${user_home_dir}/ipv6_manager.sh <<EOL
 #!/bin/bash
-echo \$(generate_ipv6)
+action=\$1
+ip=\$2
+
+case \$action in
+  "assign")
+    $(declare -f assign_ip)
+    assign_ip
+    ;;
+  "remove")
+    $(declare -f remove_ip)
+    remove_ip \$ip
+    ;;
+esac
 EOL
 
-chmod +x ${user_home_dir}/ipv6_generator.sh
+chmod +x ${user_home_dir}/ipv6_manager.sh
 
 # Configure 3proxy
 cat > $proxyserver_config_path <<EOL
@@ -615,7 +640,7 @@ $(if [ "$proxies_type" = "http" ]; then
     else
       echo "auth none"
     fi
-    echo "$proxy_command -p\$(($start_port + $i - 1)) -i$backconnect_ipv4 -e\"${user_home_dir}/ipv6_generator.sh\""
+    echo "$proxy_command -p\$(($start_port + $i - 1)) -i$backconnect_ipv4 -e\"${user_home_dir}/ipv6_manager.sh assign\" -E\"${user_home_dir}/ipv6_manager.sh remove\""
   done)
 EOL
 
@@ -639,6 +664,7 @@ EOF
 
   chmod +x $startup_script_path
 }
+
 
 
 function close_ufw_backconnect_ports() {
