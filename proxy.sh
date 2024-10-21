@@ -27,7 +27,7 @@ echo "Генерация случайных логинов и паролей..."
 touch /etc/squid/passwd
 touch /etc/squid/proxies.txt
 
-for i in {1..10}  # Изменено на 10
+for i in {1..10}  # Генерация 10 пользователей
 do
     username="user$i"
     password=$(openssl rand -base64 12)
@@ -42,7 +42,8 @@ do
         echo "Ошибка при создании пользователя $username!"
         exit 1
     fi
-
+    
+    # Генерация уникального IPv6 адреса
     ipv6="2a10:9680:1::$(printf '%x' $i)"
     echo "http_port 45.87.246.238:$((30296 + $i)) name=proxy$i" >> /etc/squid/squid.conf
     echo "45.87.246.238:$((30296 + $i)):$username:$password" >> /etc/squid/proxies.txt
@@ -67,11 +68,27 @@ EOL
 # Скрипт для ротации IPv6 адресов
 cat <<EOL > /usr/bin/rotate_squid_ipv6.sh
 #!/bin/bash
-for i in {1..10}  # Изменено на 10
-do
-    ipv6="2a10:9680:1::\$(printf '%x' \$((i + RANDOM % 1000)))"
-    sed -i "s/tcp_outgoing_address .*/tcp_outgoing_address \$ipv6 ipv6_$i/" /etc/squid/squid.conf
+
+# Функция для генерации уникального IPv6 адреса
+generate_unique_ipv6() {
+    local ipv6
+    local exists
+    while true; do
+        ipv6="2a10:9680:1::\$(printf '%x' \$((\$RANDOM % 65536)))"  # Генерация случайного IPv6 адреса
+        exists=\$(grep -c "\$ipv6" /etc/squid/squid.conf)  # Проверка существования адреса в конфигурации
+        if [ \$exists -eq 0 ]; then
+            echo "\$ipv6"  # Возврат уникального адреса
+            return
+        fi
+    done
+}
+
+# Ротация адресов для всех прокси
+for i in {1..10}; do
+    new_ipv6=\$(generate_unique_ipv6)
+    sed -i "s/tcp_outgoing_address .*/tcp_outgoing_address \$new_ipv6 ipv6_\$i/" /etc/squid/squid.conf
 done
+
 systemctl reload squid
 if [ \$? -ne 0 ]; then
     echo "Ошибка при перезагрузке Squid!"
