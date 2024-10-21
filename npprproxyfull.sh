@@ -439,6 +439,8 @@ function get_backconnect_ipv4() {
 
 function check_ipv6() {
   # Check is ipv6 enabled or not
+  echo "Отладка: Начало проверки IPv6"
+
   if test -f /proc/net/if_inet6; then
     echo "IPv6 interface is enabled";
   else
@@ -469,6 +471,8 @@ function check_ipv6() {
   else
     log_err_and_exit "Error: test ping google.com through IPv6 failed, network is unreachable.";
   fi;
+
+echo "Отладка: Проверка IPv6 завершена"
 }
 
 # Install required libraries
@@ -918,12 +922,16 @@ delete_file_if_exists $script_log_file;
 check_startup_parameters;
 check_ipv6;
 if is_proxyserver_installed; then
+  echo -e "Отладка: Прокси-сервер уже установлен, выполняется реконфигурация\n";
   echo -e "Proxy server already installed, reconfiguring:\n";
 else
+  echo "Отладка: Начало новой установки прокси-сервера"
   configure_ipv6;
   optimize_system;  # Add this line
   install_requred_packages;
   install_3proxy;
+  echo "Отладка: Новая установка прокси-сервера завершена"
+fi;
 fi;
 backconnect_ipv4=$(get_backconnect_ipv4);
 generate_random_users_if_needed;
