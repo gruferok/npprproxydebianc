@@ -31,7 +31,13 @@ for i in {1..1000}
 do
     username="user$i"
     password=$(openssl rand -base64 12)
-    htpasswd -b /etc/squid/passwd $username $password
+    
+    if [ $i -eq 1 ]; then
+        htpasswd -c -b /etc/squid/passwd $username $password
+    else
+        htpasswd -b /etc/squid/passwd $username $password
+    fi
+    
     if [ $? -ne 0 ]; then
         echo "Ошибка при создании пользователя $username!"
         exit 1
