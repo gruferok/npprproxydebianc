@@ -1,80 +1,111 @@
 #!/bin/bash
 
 # Настройки
-users=2  # Количество пользователей на порт
-ports=2  # Количество портов
-subnet="2a10:9680:1::"  # Подсеть для IPv6
-gateway="2a10:9680::1"  # Шлюз для IPv6
-squid_conf="/etc/squid/squid.conf"
-ip_list="/etc/squid/ipv6_users.txt"
-proxy_list="proxy_list.txt"
-passwd_file="/etc/squid/squid_passwd"
+users=2
+ports=2
+ipv6_subnet="2a10:9680:1::"
+ipv6_prefix="48"
+ipv6_gateway="2a10:9680::1"
 
-# Создание необходимых файлов
-touch "$ip_list" "$passwd_file"
-echo "" > "$proxy_list"  # Очистка списка прокси
+# Установка необходимых пакетов
+apt-get update
+apt-get install -y squid apache2-utils
 
-# Проверка наличия Squid
-if ! command -v squid >/dev/null 2>&1; then
-    echo "Squid не установлен. Установите его с помощью: apt install squid"
-    exit 1
-fi
-
-# Генерация уникальных IPv6 адресов
-function generate_unique_ipv6 {
-    local ip
-    while :; do
-        # Генерация случайной части IPv6
-        ip="${subnet}$(printf '%x:%x:%x:%x:%x:%x:%x:%x' $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)))"
-        if ! grep -q "$ip" "$ip_list"; then
-            echo "$ip" >> "$ip_list"
-            echo "$ip"
-            break
-        fi
-    done
+# Генерация случайного пароля
+generate_password() {
+    < /dev/urandom tr -dc 'A-Za-z0-9' | head -c16
 }
 
-# Настройка пользователей и портов
-function setup_users_and_ports {
-    for ((p=0; p<ports; p++)); do
-        port=$((3128 + p))  # Порты с 3128
-        echo "http_port $port" >> "$squid_conf"
-
-        for ((u=0; u<users; u++)); do
-            user="user$((p * users + u + 1))"
-            password=$(openssl rand -base64 12)
-            echo "$user:$(openssl passwd -6 "$password")" >> "$passwd_file"
-
-            # Генерация IPv6 для пользователя
-            ipv6=$(generate_unique_ipv6)
-
-            echo "acl user_$user proxy_auth $user" >> "$squid_conf"
-            echo "http_access allow user_$user" >> "$squid_conf"
-        done
-    done
+# Генерация уникального IPv6 адреса
+generate_ipv6() {
+    local subnet=$1
+    local prefix=$2
+    local random_hex=$(openssl rand -hex 8)
+    echo "${subnet}${random_hex}"
 }
 
-# Основная функция
-function main {
-    echo "" > "$squid_conf"  # Очистка конфигурации
-    echo "auth_param basic program /usr/lib/squid/basic_ncsa_auth $passwd_file" >> "$squid_conf"
-    echo "auth_param basic realm Proxy" >> "$squid_conf"
-    echo "auth_param basic credentialsttl 2 hours" >> "$squid_conf"
-    echo "http_access deny !auth" >> "$squid_conf"  # Запрет доступа, если не аутентифицирован
+# Создание конфигурации Squid
+cat > /etc/squid/squid.conf <<EOL
+http_port 3128
+auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
+auth_param basic realm proxy
+acl authenticated proxy_auth REQUIRED
+http_access allow authenticated
+http_access deny all
 
-    setup_users_and_ports
+# IPv6 настройки
+dns_v4_first on
+tcp_outgoing_address 127.0.0.1
 
-    # Запуск Squid
-    squid -N -f "$squid_conf" &
+# Внешний ACL для динамического назначения IPv6
+external_acl_type ipv6_assign ttl=300 negative_ttl=0 children-startup=1 children-max=50 %LOGIN /usr/local/bin/assign_ipv6.py
 
-    # Настройка ротации адресов
-    while :; do
-        sleep 300  # Ожидание 5 минут
-        echo "" > "$ip_list"  # Очистка списка IP
-        echo "" > "$proxy_list"  # Очистка списка прокси
-        setup_users_and_ports  # Повторная настройка пользователей и портов
+acl dynamic_ipv6 external ipv6_assign
+tcp_outgoing_address 2a10:9680:1::%>ipv6 dynamic_ipv6
+EOL
+
+# Создание файла паролей
+touch /etc/squid/passwd
+
+# Генерация пользователей и портов
+for ((p=1; p<=ports; p++)); do
+    port=$((3128 + p - 1))
+    echo "http_port $port" >> /etc/squid/squid.conf
+    
+    for ((u=1; u<=users; u++)); do
+        username="user${p}_${u}"
+        password=$(generate_password)
+        echo "$username:$password" | tee -a /etc/squid/proxy_list.txt
+        htpasswd -b /etc/squid/passwd $username $password
     done
-}
+done
 
-# Запуск основного процесса
-main
+# Скрипт для назначения IPv6 адресов
+cat > /usr/local/bin/assign_ipv6.py <<EOL
+#!/usr/bin/env python3
+import sys
+import random
+import ipaddress
+
+def generate_ipv6():
+    subnet = ipaddress.IPv6Network('2a10:9680:1::/48')
+    while True:
+        address = subnet[random.randint(0, subnet.num_addresses - 1)]
+        if address != subnet.network_address and address != subnet.broadcast_address:
+            return str(address)
+
+while True:
+    line = sys.stdin.readline().strip()
+    if not line:
+        break
+    
+    username = line.split()[0]
+    ipv6 = generate_ipv6()
+    print(f"{username} OK ipv6={ipv6}")
+    sys.stdout.flush()
+EOL
+
+chmod +x /usr/local/bin/assign_ipv6.py
+
+# Скрипт для ротации IPv6 адресов
+cat > /root/rotate_ipv6.sh <<EOL
+#!/bin/bash
+systemctl reload squid
+EOL
+
+chmod +x /root/rotate_ipv6.sh
+
+# Добавление задачи в crontab для ротации каждые 5 минут
+(crontab -l 2>/dev/null; echo "*/5 * * * * /root/rotate_ipv6.sh") | crontab -
+
+# Запуск Squid
+systemctl enable squid
+systemctl start squid
+
+# Вывод списка прокси
+while IFS=: read -r username password; do
+    for ((p=1; p<=ports; p++)); do
+        port=$((3128 + p - 1))
+        echo "45.87.246.238:$port:$username:$password"
+    done
+done < /etc/squid/proxy_list.txt
