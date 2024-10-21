@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Снятие системных лимитов
+echo "Снятие системных лимитов..."
+ulimit -n 1048576
+ulimit -u 1048576
+
 # Установка Squid
 echo "Установка Squid..."
 apt-get update && apt-get install -y squid apache2-utils
@@ -82,3 +87,34 @@ EOL
 chmod +x /usr/bin/rotate_squid_ipv6.sh
 
 echo "Установка и настройка завершены! Прокси сохранены в /etc/squid/proxies.txt"
+
+# Скрипт для мониторинга сервера и предупреждений при перегрузке
+cat <<'EOL' > /usr/bin/monitor_server.sh
+#!/bin/bash
+CPU_THRESHOLD=80
+MEM_THRESHOLD=80
+
+while true; do
+    CPU_USAGE=$(top -b -n1 | grep "Cpu(s)" | awk '{print $2 + $4}')
+    MEM_USAGE=$(free | grep Mem | awk '{print $3/$2 * 100.0}')
+    
+    if (( $(echo "$CPU_USAGE > $CPU_THRESHOLD" | bc -l) )); then
+        echo "Предупреждение: Загрузка CPU превышает $CPU_THRESHOLD%. Текущая загрузка: $CPU_USAGE%."
+    fi
+    
+    if (( $(echo "$MEM_USAGE > $MEM_THRESHOLD" | bc -l) )); then
+        echo "Предупреждение: Загрузка памяти превышает $MEM_THRESHOLD%. Текущая загрузка: $MEM_USAGE%."
+    fi
+    
+    sleep 60
+done
+EOL
+
+# Настройка прав на выполнение скрипта
+chmod +x /usr/bin/monitor_server.sh
+
+# Создание крон-задачи для мониторинга сервера
+echo "Создание крон-задачи для мониторинга сервера..."
+cat <<EOL > /etc/cron.d/monitor_server
+* * * * * root /usr/bin/monitor_server.sh
+EOL
