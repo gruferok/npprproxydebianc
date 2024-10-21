@@ -44,10 +44,9 @@ do
     fi
     
     ipv6="2a10:9680:1::$(printf '%x' $i)"
-    echo "http_port 45.87.246.238:$((30296 + $i)) name=proxy$i" >> /etc/squid/squid.conf
-    echo "45.87.246.238:$((30296 + $i)):$username:$password" >> /etc/squid/proxies.txt
-    echo "acl ipv6_$i myportname proxy$i" >> /etc/squid/squid.conf
-    echo "tcp_outgoing_address $ipv6 ipv6_$i" >> /etc/squid/squid.conf
+    echo "45.87.246.238:3128:$username:$password" >> /etc/squid/proxies.txt
+    echo "acl user_$i proxy_auth $username" >> /etc/squid/squid.conf
+    echo "tcp_outgoing_address $ipv6 user_$i" >> /etc/squid/squid.conf
 done
 
 # Перезапуск Squid для применения изменений
@@ -65,12 +64,12 @@ cat <<EOL > /etc/cron.d/rotate_squid_ipv6
 EOL
 
 # Скрипт для ротации IPv6 адресов
-cat <<EOL > /usr/bin/rotate_squid_ipv6.sh
+cat <<'EOL' > /usr/bin/rotate_squid_ipv6.sh
 #!/bin/bash
 for i in {1..1000}
 do
-    ipv6="2a10:9680:1::\$(printf '%x' \$((i + RANDOM % 1000)))"
-    sed -i "s/tcp_outgoing_address .*/tcp_outgoing_address \$ipv6 ipv6_$i/" /etc/squid/squid.conf
+    ipv6="2a10:9680:1::$(printf '%x' $((i + RANDOM % 1000)))"
+    sed -i "s/tcp_outgoing_address .*/tcp_outgoing_address $ipv6 user_$i/" /etc/squid/squid.conf
 done
 systemctl reload squid
 if [ $? -ne 0 ]; then
