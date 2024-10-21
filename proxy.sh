@@ -22,9 +22,7 @@ update_squid_config() {
     echo "Обновление конфигурации Squid..."
 
     # Создание конфигурационного файла для Squid
-    cat <<EOL > /etc/squid/squid.conf
-# Настройки для прослушивания портов
-EOL
+    echo "http_port [::]:3128" > /etc/squid/squid.conf
 
     # Добавление портов для Squid
     for port in $(seq 3128 $((3128 + num_ports - 1))); do
@@ -81,10 +79,7 @@ EOL
                 new_ipv6="$ipv6_base$(printf '%x' $((RANDOM % 65535)))"
                 if ! grep -q "$new_ipv6" /etc/squid/squid.conf; then
                     echo "tcp_outgoing_address $new_ipv6 user_$user_index" >> /etc/squid/squid.conf
-                fi
-                # Добавление условия для выхода из цикла, чтобы избежать бесконечного цикла
-                if [ $(wc -l < /etc/squid/squid.conf) -gt 100 ]; then  # Условие для остановки при превышении 100 строк
-                    break
+                    break  # Выход из цикла после назначения адреса
                 fi
             done
         done
