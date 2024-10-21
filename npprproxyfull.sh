@@ -158,9 +158,12 @@ get_user_input
 # Имитируем установку с анимированным прогрессом
 echo "Установка началась. Ожидайте..."
 (sleep 10)  # Имитируем процесс установки задержкой в 10 секунд
+echo "Отладка: Начало процесса установки" >> /tmp/proxy_debug.log
 
 # Перенаправляем весь вывод в лог-файл
 exec > /var/tmp/ipv6-proxy-server-install.log 2>&1
+
+echo "Отладка: Вывод перенаправлен в лог-файл" 
 
 # Убедитесь, что все необходимые утилиты установлены
 required_packages=("openssl" "zip" "curl" "jq")
@@ -171,6 +174,8 @@ for package in "${required_packages[@]}"; do
         apt-get install -y $package
     fi
 done
+
+echo "Отладка: Все необходимые утилиты установлены"
 
 # Script must be running from root
 if [ "$EUID" -ne 0 ]; then
