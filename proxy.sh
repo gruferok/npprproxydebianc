@@ -8,6 +8,11 @@ gateway="2a10:9680::1"  # Шлюз для IPv6
 squid_conf="/etc/squid/squid.conf"
 ip_list="/etc/squid/ipv6_users.txt"
 proxy_list="proxy_list.txt"
+passwd_file="/etc/squid/squid_passwd"
+
+# Создание необходимых файлов
+touch "$ip_list" "$passwd_file"
+echo "" > "$proxy_list"  # Очистка списка прокси
 
 # Проверка наличия Squid
 if ! command -v squid >/dev/null 2>&1; then
@@ -38,16 +43,13 @@ function setup_users_and_ports {
         for ((u=0; u<users; u++)); do
             user="user$((p * users + u + 1))"
             password=$(openssl rand -base64 12)
-            echo "$user:$(openssl passwd -6 "$password")" >> /etc/squid/squid_passwd
+            echo "$user:$(openssl passwd -6 "$password")" >> "$passwd_file"
 
             # Генерация IPv6 для пользователя
             ipv6=$(generate_unique_ipv6)
 
             echo "acl user_$user proxy_auth $user" >> "$squid_conf"
             echo "http_access allow user_$user" >> "$squid_conf"
-
-            # Запись в файл прокси
-            echo "$(curl -4s ifconfig.me):$port:$user:$password" >> "$proxy_list"
         done
     done
 }
@@ -55,7 +57,10 @@ function setup_users_and_ports {
 # Основная функция
 function main {
     echo "" > "$squid_conf"  # Очистка конфигурации
-    echo "http_access allow all" >> "$squid_conf"  # Разрешение доступа всем (можно настроить)
+    echo "auth_param basic program /usr/lib/squid/basic_ncsa_auth $passwd_file" >> "$squid_conf"
+    echo "auth_param basic realm Proxy" >> "$squid_conf"
+    echo "auth_param basic credentialsttl 2 hours" >> "$squid_conf"
+    echo "http_access deny !auth" >> "$squid_conf"  # Запрет доступа, если не аутентифицирован
 
     setup_users_and_ports
 
