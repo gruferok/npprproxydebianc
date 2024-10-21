@@ -20,6 +20,15 @@ fi
 # Создание конфигурационного файла для Squid
 echo "Создание конфигурационного файла для Squid..."
 cat <<EOL > /etc/squid/squid.conf
+# Настройки для прослушивания портов
+EOL
+
+# Добавление портов для Squid
+for port in $(seq 3128 $((3128 + num_ports - 1))); do
+    echo "http_port $port" >> /etc/squid/squid.conf
+done
+
+cat <<EOL >> /etc/squid/squid.conf
 auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
 auth_param basic children 5
 auth_param basic realm Squid proxy-caching web server
@@ -80,6 +89,8 @@ EOL
 cat <<'EOL' > /usr/bin/rotate_squid_ipv6.sh
 #!/bin/bash
 ipv6_base="2a10:9680:1::"
+users_per_port=2  # Количество пользователей на порт
+num_ports=2       # Количество портов
 
 for port in $(seq 3128 $((3128 + num_ports - 1))); do
     for i in $(seq 1 $users_per_port); do
@@ -99,34 +110,3 @@ EOL
 chmod +x /usr/bin/rotate_squid_ipv6.sh
 
 echo "Установка и настройка завершены! Прокси сохранены в /etc/squid/proxies.txt"
-
-# Скрипт для мониторинга сервера и предупреждений при перегрузке
-cat <<'EOL' > /usr/bin/monitor_server.sh
-#!/bin/bash
-CPU_THRESHOLD=80
-MEM_THRESHOLD=80
-
-while true; do
-    CPU_USAGE=$(top -b -n1 | grep "Cpu(s)" | awk '{print $2 + $4}')
-    MEM_USAGE=$(free | grep Mem | awk '{print $3/$2 * 100.0}')
-    
-    if (( $(echo "$CPU_USAGE > $CPU_THRESHOLD" | bc -l) )); then
-        echo "Предупреждение: Загрузка CPU превышает $CPU_THRESHOLD%. Текущая загрузка: $CPU_USAGE%."
-    fi
-    
-    if (( $(echo "$MEM_USAGE > $MEM_THRESHOLD" | bc -l) )); then
-        echo "Предупреждение: Загрузка памяти превышает $MEM_THRESHOLD%. Текущая загрузка: $MEM_USAGE%."
-    fi
-    
-    sleep 60
-done
-EOL
-
-# Настройка прав на выполнение скрипта
-chmod +x /usr/bin/monitor_server.sh
-
-# Создание крон-задачи для мониторинга сервера
-echo "Создание крон-задачи для мониторинга сервера..."
-cat <<EOL > /etc/cron.d/monitor_server
-* * * * * root /usr/bin/monitor_server.sh
-EOL
