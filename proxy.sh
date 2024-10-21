@@ -29,10 +29,10 @@ http_access deny all
 dns_v4_first on
 
 # Внешний ACL для динамического назначения IPv6
-external_acl_type ipv6_assign ttl=300 negative_ttl=0 children-startup=1 children-max=50 %LOGIN /usr/local/bin/assign_ipv6.py
+external_acl_type ipv6_assign ipv6 %LOGIN /usr/local/bin/assign_ipv6.py
 
 acl dynamic_ipv6 external ipv6_assign
-tcp_outgoing_address ${ipv6_subnet}%256 dynamic_ipv6
+tcp_outgoing_address %o dynamic_ipv6
 EOL
 
 # Создание файла паролей
@@ -72,7 +72,7 @@ while True:
     
     username = line.split()[0]
     ipv6 = generate_ipv6()
-    print(f"{username} OK ipv6={ipv6}")
+    print(ipv6)
     sys.stdout.flush()
 EOL
 
