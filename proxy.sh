@@ -4,7 +4,7 @@
 users_per_port=2  # Количество пользователей на порт
 num_ports=2       # Количество портов
 
-# Общие системные лимиты
+# Снятие системных лимитов
 echo "Снятие системных лимитов..."
 ulimit -n 1048576
 ulimit -u 1048576
@@ -39,7 +39,7 @@ acl authenticated proxy_auth REQUIRED
 http_access allow authenticated
 EOL
 
-# Генерация случайных логинов, паролей и добавление их в файл паролей
+# Генерация случайных логинов и паролей, добавление в файл паролей
 echo "Генерация случайных логинов и паролей..."
 touch /etc/squid/passwd
 touch /etc/squid/proxies.txt
@@ -64,10 +64,30 @@ for port in $(seq 3128 $((3128 + num_ports - 1))); do
             exit 1
         fi
 
-        ipv6="$ipv6_base$(printf '%x' $user_index)"
+        # Добавление логина и пароля в файл proxies.txt
         echo "45.87.246.238:$port:$username:$password" >> /etc/squid/proxies.txt
+
+        # Для каждого пользователя создаем ACL
         echo "acl user_$user_index proxy_auth $username" >> /etc/squid/squid.conf
-        echo "tcp_outgoing_address $ipv6 user_$user_index" >> /etc/squid/squid.conf
+    done
+done
+
+# Настройка логики для динамического назначения уникального IPv6 при каждом CONNECT запросе (туннель)
+cat <<EOL >> /etc/squid/squid.conf
+
+# Правила для обработки CONNECT-запросов (туннелей)
+acl CONNECT method CONNECT
+
+# Назначение уникальных IPv6 адресов для каждого нового туннеля
+EOL
+
+for port in $(seq 3128 $((3128 + num_ports - 1))); do
+    for i in $(seq 1 $users_per_port); do
+        user_index=$(( (port - 3128) * users_per_port + i ))
+        for j in $(seq 1 5); do  # Для каждого пользователя несколько динамических адресов
+            random_ipv6="$ipv6_base$(printf '%x' $((RANDOM % 65535)))"
+            echo "tcp_outgoing_address $random_ipv6 user_$user_index" >> /etc/squid/squid.conf
+        done
     done
 done
 
@@ -95,8 +115,10 @@ num_ports=2       # Количество портов
 for port in $(seq 3128 $((3128 + num_ports - 1))); do
     for i in $(seq 1 $users_per_port); do
         user_index=$(( (port - 3128) * users_per_port + i ))
-        new_ipv6="$ipv6_base$(printf '%x' $((user_index + RANDOM % 1000)))"
-        sed -i "s/tcp_outgoing_address .*/tcp_outgoing_address $new_ipv6 user_$user_index/" /etc/squid/squid.conf
+        for j in $(seq 1 5); do
+            new_ipv6="$ipv6_base$(printf '%x' $((RANDOM % 65535)))"
+            sed -i "s/tcp_outgoing_address .*/tcp_outgoing_address $new_ipv6 user_$user_index/" /etc/squid/squid.conf
+        done
     done
 done
 systemctl reload squid
