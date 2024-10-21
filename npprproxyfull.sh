@@ -161,7 +161,7 @@ echo "Установка началась. Ожидайте..."
 echo "Отладка: Начало процесса установки" >> /tmp/proxy_debug.log
 
 # Перенаправляем весь вывод в лог-файл
-exec > >(tee -a /var/tmp/ipv6-proxy-server-install.log) 2>&1
+#exec > >(tee -a /var/tmp/ipv6-proxy-server-install.log) 2>&1
 
 echo "Отладка: Вывод перенаправлен в лог-файл" 
 
