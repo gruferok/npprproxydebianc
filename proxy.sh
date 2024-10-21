@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Настройки
-users=2
-ports=2
+users_per_port=2
+total_ports=2
 ipv6_subnet="2a10:9680:1::"
 ipv6_prefix="48"
 ipv6_gateway="2a10:9680::1"
@@ -14,14 +14,6 @@ apt-get install -y squid apache2-utils
 # Генерация случайного пароля
 generate_password() {
     < /dev/urandom tr -dc 'A-Za-z0-9' | head -c16
-}
-
-# Генерация уникального IPv6 адреса
-generate_ipv6() {
-    local subnet=$1
-    local prefix=$2
-    local random_hex=$(openssl rand -hex 8)
-    echo "${subnet}${random_hex}"
 }
 
 # Создание конфигурации Squid
@@ -48,11 +40,11 @@ EOL
 touch /etc/squid/passwd
 
 # Генерация пользователей и портов
-for ((p=1; p<=ports; p++)); do
+for ((p=1; p<=total_ports; p++)); do
     port=$((3128 + p - 1))
     echo "http_port $port" >> /etc/squid/squid.conf
     
-    for ((u=1; u<=users; u++)); do
+    for ((u=1; u<=users_per_port; u++)); do
         username="user${p}_${u}"
         password=$(generate_password)
         echo "$username:$password" | tee -a /etc/squid/proxy_list.txt
@@ -90,7 +82,11 @@ chmod +x /usr/local/bin/assign_ipv6.py
 # Скрипт для ротации IPv6 адресов
 cat > /root/rotate_ipv6.sh <<EOL
 #!/bin/bash
-systemctl reload squid
+if systemctl is-active --quiet squid; then
+    systemctl reload squid
+else
+    systemctl start squid
+fi
 EOL
 
 chmod +x /root/rotate_ipv6.sh
@@ -104,7 +100,7 @@ systemctl start squid
 
 # Вывод списка прокси
 while IFS=: read -r username password; do
-    for ((p=1; p<=ports; p++)); do
+    for ((p=1; p<=total_ports; p++)); do
         port=$((3128 + p - 1))
         echo "45.87.246.238:$port:$username:$password"
     done
