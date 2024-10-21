@@ -27,13 +27,12 @@ http_access deny all
 
 # IPv6 настройки
 dns_v4_first on
-tcp_outgoing_address 127.0.0.1
 
 # Внешний ACL для динамического назначения IPv6
 external_acl_type ipv6_assign ttl=300 negative_ttl=0 children-startup=1 children-max=50 %LOGIN /usr/local/bin/assign_ipv6.py
 
 acl dynamic_ipv6 external ipv6_assign
-tcp_outgoing_address 2a10:9680:1::%>ipv6 dynamic_ipv6
+tcp_outgoing_address ${ipv6_subnet}%256 dynamic_ipv6
 EOL
 
 # Создание файла паролей
@@ -60,7 +59,7 @@ import random
 import ipaddress
 
 def generate_ipv6():
-    subnet = ipaddress.IPv6Network('2a10:9680:1::/48')
+    subnet = ipaddress.IPv6Network('${ipv6_subnet}/${ipv6_prefix}')
     while True:
         address = subnet[random.randint(0, subnet.num_addresses - 1)]
         if address != subnet.network_address and address != subnet.broadcast_address:
@@ -83,7 +82,7 @@ chmod +x /usr/local/bin/assign_ipv6.py
 cat > /root/rotate_ipv6.sh <<EOL
 #!/bin/bash
 if systemctl is-active --quiet squid; then
-    systemctl reload squid
+    systemctl reload squid || systemctl restart squid
 else
     systemctl start squid
 fi
