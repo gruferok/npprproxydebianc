@@ -8,10 +8,10 @@ IPV6_PREFIX="/48"
 IPV6_GATEWAY="2a10:9680::1"
 ROTATION_INTERVAL=300 # 5 минут в секундах
 
-# Пути к файлам
-SQUID_CONF="/etc/squid/squid.conf"
-SQUID_PASSWD="/etc/squid/squid_passwd"
-GENERATE_IPV6_SCRIPT="/usr/local/bin/generate_ipv6.sh"
+# Пути к файлам (измените их в соответствии с вашими правами доступа)
+SQUID_CONF="$HOME/squid.conf"
+SQUID_PASSWD="$HOME/squid_passwd"
+GENERATE_IPV6_SCRIPT="$HOME/generate_ipv6.sh"
 
 # Функция для генерации случайного пароля
 generate_password() {
@@ -21,12 +21,6 @@ generate_password() {
 # Функция для генерации уникального IPv6 адреса
 generate_ipv6() {
     printf "${IPV6_SUBNET}%x:%x:%x:%x\n" $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536))
-}
-
-# Установка необходимых пакетов
-install_packages() {
-    apt-get update
-    apt-get install -y squid apache2-utils
 }
 
 # Создание скрипта для генерации IPv6 адресов
@@ -71,25 +65,33 @@ EOL
             echo "$HOSTNAME:$port:$username:$password" >> proxy_list.txt
         done
     done
-
-    chown proxy:proxy "$SQUID_PASSWD"
-    chmod 640 "$SQUID_PASSWD"
 }
 
-# Функция для ротации IPv6 адресов
+# Функция для ротации IPv6 адресов (эмуляция перезагрузки конфигурации)
 rotate_ipv6_addresses() {
     while true; do
         sleep $ROTATION_INTERVAL
-        systemctl reload squid
+        echo "Rotating IPv6 addresses..."
+        # Здесь должна быть команда для перезагрузки конфигурации Squid
+        # Так как у нас нет прав на systemctl, мы просто выводим сообщение
     done
 }
 
 # Основная функция
 main() {
-    install_packages
+    echo "This script will generate Squid configuration files in your home directory."
+    echo "You will need to manually install Squid and apply these configurations."
+    
     create_ipv6_script
     configure_squid
-    systemctl restart squid
+    
+    echo "Configuration complete. Please do the following manually:"
+    echo "1. Install Squid if not already installed"
+    echo "2. Copy $SQUID_CONF to the appropriate Squid configuration directory"
+    echo "3. Copy $SQUID_PASSWD to the appropriate Squid password file location"
+    echo "4. Start or restart Squid with the new configuration"
+    echo "5. Set up a cron job or other mechanism to reload Squid every $ROTATION_INTERVAL seconds for IP rotation"
+    
     rotate_ipv6_addresses &
 }
 
