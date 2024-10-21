@@ -17,18 +17,21 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Создание конфигурационного файла для Squid
-echo "Создание конфигурационного файла для Squid..."
-cat <<EOL > /etc/squid/squid.conf
+# Функция для обновления конфигурации Squid
+update_squid_config() {
+    echo "Обновление конфигурации Squid..."
+
+    # Создание конфигурационного файла для Squid
+    cat <<EOL > /etc/squid/squid.conf
 # Настройки для прослушивания портов
 EOL
 
-# Добавление портов для Squid
-for port in $(seq 3128 $((3128 + num_ports - 1))); do
-    echo "http_port $port" >> /etc/squid/squid.conf
-done
+    # Добавление портов для Squid
+    for port in $(seq 3128 $((3128 + num_ports - 1))); do
+        echo "http_port $port" >> /etc/squid/squid.conf
+    done
 
-cat <<EOL >> /etc/squid/squid.conf
+    cat <<EOL >> /etc/squid/squid.conf
 auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
 auth_param basic children 5
 auth_param basic realm Squid proxy-caching web server
@@ -37,67 +40,67 @@ auth_param basic casesensitive off
 
 acl authenticated proxy_auth REQUIRED
 http_access allow authenticated
-EOL
-
-# Генерация случайных логинов и паролей, добавление в файл паролей
-echo "Генерация случайных логинов и паролей..."
-touch /etc/squid/passwd
-touch /etc/squid/proxies.txt
-
-total_users=$((users_per_port * num_ports))
-ipv6_base="2a10:9680:1::"  # Базовый префикс IPv6 адресов
-
-for port in $(seq 3128 $((3128 + num_ports - 1))); do
-    for i in $(seq 1 $users_per_port); do
-        user_index=$(( (port - 3128) * users_per_port + i ))
-        username="user$user_index"
-        password=$(openssl rand -base64 12)
-
-        if [ $user_index -eq 1 ]; then
-            htpasswd -c -b /etc/squid/passwd $username $password
-        else
-            htpasswd -b /etc/squid/passwd $username $password
-        fi
-
-        if [ $? -ne 0 ]; then
-            echo "Ошибка при создании пользователя $username!"
-            exit 1
-        fi
-
-        # Добавление логина и пароля в файл proxies.txt
-        echo "45.87.246.238:$port:$username:$password" >> /etc/squid/proxies.txt
-
-        # Для каждого пользователя создаем ACL
-        echo "acl user_$user_index proxy_auth $username" >> /etc/squid/squid.conf
-    done
-done
-
-# Настройка логики для динамического назначения уникального IPv6 при каждом CONNECT запросе (туннель)
-cat <<EOL >> /etc/squid/squid.conf
 
 # Правила для обработки CONNECT-запросов (туннелей)
 acl CONNECT method CONNECT
-
-# Назначение уникальных IPv6 адресов для каждого нового туннеля
 EOL
 
-for port in $(seq 3128 $((3128 + num_ports - 1))); do
-    for i in $(seq 1 $users_per_port); do
-        user_index=$(( (port - 3128) * users_per_port + i ))
-        for j in $(seq 1 5); do  # Для каждого пользователя несколько динамических адресов
-            random_ipv6="$ipv6_base$(printf '%x' $((RANDOM % 65535)))"
-            echo "tcp_outgoing_address $random_ipv6 user_$user_index" >> /etc/squid/squid.conf
+    # Генерация случайных логинов и паролей, добавление в файл паролей
+    echo "Генерация случайных логинов и паролей..."
+    touch /etc/squid/passwd
+    touch /etc/squid/proxies.txt
+
+    total_users=$((users_per_port * num_ports))
+    ipv6_base="2a10:9680:1::"  # Базовый префикс IPv6 адресов
+
+    for port in $(seq 3128 $((3128 + num_ports - 1))); do
+        for i in $(seq 1 $users_per_port); do
+            user_index=$(( (port - 3128) * users_per_port + i ))
+            username="user$user_index"
+            password=$(openssl rand -base64 12)
+
+            if [ $user_index -eq 1 ]; then
+                htpasswd -c -b /etc/squid/passwd $username $password
+            else
+                htpasswd -b /etc/squid/passwd $username $password
+            fi
+
+            if [ $? -ne 0 ]; then
+                echo "Ошибка при создании пользователя $username!"
+                exit 1
+            fi
+
+            # Добавление логина и пароля в файл proxies.txt
+            echo "45.87.246.238:$port:$username:$password" >> /etc/squid/proxies.txt
+
+            # Для каждого пользователя создаем ACL
+            echo "acl user_$user_index proxy_auth $username" >> /etc/squid/squid.conf
+
+            # Назначение динамических IPv6 адресов для каждого пользователя
+            while true; do
+                new_ipv6="$ipv6_base$(printf '%x' $((RANDOM % 65535)))"
+                if ! grep -q "$new_ipv6" /etc/squid/squid.conf; then
+                    echo "tcp_outgoing_address $new_ipv6 user_$user_index" >> /etc/squid/squid.conf
+                fi
+                # Добавление условия для выхода из цикла, чтобы избежать бесконечного цикла
+                if [ $(wc -l < /etc/squid/squid.conf) -gt 100 ]; then  # Условие для остановки при превышении 100 строк
+                    break
+                fi
+            done
         done
     done
-done
 
-# Перезапуск Squid для применения изменений
-echo "Перезапуск Squid..."
-systemctl restart squid
-if [ $? -ne 0 ]; then
-    echo "Ошибка при перезапуске Squid!"
-    exit 1
-fi
+    # Перезапуск Squid для применения изменений
+    echo "Перезапуск Squid..."
+    systemctl restart squid
+    if [ $? -ne 0 ]; then
+        echo "Ошибка при перезапуске Squid!"
+        exit 1
+    fi
+}
+
+# Вызов функции обновления конфигурации
+update_squid_config
 
 # Скрипт для ротации IPv6 адресов каждые 5 минут
 echo "Создание крон-задачи для ротации IPv6 адресов..."
@@ -109,23 +112,19 @@ EOL
 cat <<'EOL' > /usr/bin/rotate_squid_ipv6.sh
 #!/bin/bash
 ipv6_base="2a10:9680:1::"
-users_per_port=2  # Количество пользователей на порт
-num_ports=2       # Количество портов
 
-for port in $(seq 3128 $((3128 + num_ports - 1))); do
-    for i in $(seq 1 $users_per_port); do
-        user_index=$(( (port - 3128) * users_per_port + i ))
-        for j in $(seq 1 5); do
-            new_ipv6="$ipv6_base$(printf '%x' $((RANDOM % 65535)))"
-            sed -i "s/tcp_outgoing_address .*/tcp_outgoing_address $new_ipv6 user_$user_index/" /etc/squid/squid.conf
-        done
+# Для каждого пользователя генерируем новый уникальный IPv6 адрес
+while true; do
+    users=$(grep 'tcp_outgoing_address' /etc/squid/squid.conf | awk '{print $4}')
+    for user in $users; do
+        new_ipv6="$ipv6_base$(printf '%x' $((RANDOM % 65535)))"
+        if ! grep -q "$new_ipv6" /etc/squid/squid.conf; then
+            sed -i "s/tcp_outgoing_address .* $user/tcp_outgoing_address $new_ipv6 $user/" /etc/squid/squid.conf
+        fi
     done
+    systemctl reload squid
+    sleep 300  # Ждем 5 минут перед следующей ротацией
 done
-systemctl reload squid
-if [ $? -ne 0 ]; then
-    echo "Ошибка при перезагрузке Squid!"
-    exit 1
-fi
 EOL
 
 # Настройка прав на выполнение скрипта
