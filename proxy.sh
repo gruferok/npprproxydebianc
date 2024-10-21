@@ -77,13 +77,20 @@ EOL
             # Назначение динамических IPv6 адресов для каждого пользователя
             while true; do
                 new_ipv6="$ipv6_base$(printf '%x' $((RANDOM % 65535)))"
+                echo "Пробуем назначить IPv6 адрес: $new_ipv6 для пользователя: $username"
                 if ! grep -q "$new_ipv6" /etc/squid/squid.conf; then
                     echo "tcp_outgoing_address $new_ipv6 user_$user_index" >> /etc/squid/squid.conf
+                    echo "Успешно назначен IPv6 адрес: $new_ipv6 для пользователя: $username"
                     break  # Выход из цикла после назначения адреса
+                else
+                    echo "IPv6 адрес $new_ipv6 уже существует, генерируем новый..."
                 fi
             done
         done
     done
+
+    echo "Текущая конфигурация Squid перед перезапуском:"
+    cat /etc/squid/squid.conf
 
     # Перезапуск Squid для применения изменений
     echo "Перезапуск Squid..."
@@ -113,8 +120,12 @@ while true; do
     users=$(grep 'tcp_outgoing_address' /etc/squid/squid.conf | awk '{print $4}')
     for user in $users; do
         new_ipv6="$ipv6_base$(printf '%x' $((RANDOM % 65535)))"
+        echo "Ротация IPv6 адреса для пользователя: $user. Новый адрес: $new_ipv6"
         if ! grep -q "$new_ipv6" /etc/squid/squid.conf; then
             sed -i "s/tcp_outgoing_address .* $user/tcp_outgoing_address $new_ipv6 $user/" /etc/squid/squid.conf
+            echo "Успешно обновлен IPv6 адрес для пользователя: $user на $new_ipv6"
+        else
+            echo "IPv6 адрес $new_ipv6 уже существует, генерируем новый..."
         fi
     done
     systemctl reload squid
