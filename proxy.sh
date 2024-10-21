@@ -1,13 +1,14 @@
 #!/bin/bash
 
+# Функция для генерации случайного IPv6 адреса
+generate_ipv6() {
+    printf "2a10:9680:1::%x\n" $((RANDOM % 65536))
+}
+
 # Снятие системных лимитов
 echo "Снятие системных лимитов..."
 ulimit -n 1048576
 ulimit -u 1048576
-
-# Запрос количества пользователей
-echo "Сколько пользователей вы хотите сгенерировать?"
-read user_count
 
 # Установка Squid
 echo "Установка Squid..."
@@ -16,6 +17,9 @@ if [ $? -ne 0 ]; then
     echo "Ошибка при установке Squid!"
     exit 1
 fi
+
+# Запрос количества пользователей
+read -p "Сколько пользователей вы хотите создать? " user_count
 
 # Создание конфигурационного файла для Squid
 echo "Создание конфигурационного файла для Squid..."
@@ -39,21 +43,11 @@ connect_timeout 30 seconds
 
 cache_log /var/log/squid/cache.log
 
-# Внешний ACL для генерации уникальных IPv6 адресов
-external_acl_type ipv6_generator %LOGIN /usr/local/bin/generate_ipv6.sh
-acl dynamic_ipv6 external ipv6_generator
-tcp_outgoing_address 2a10:9680:1::%>a dynamic_ipv6
+# Динамическое назначение IPv6 адресов
+external_acl_type ipv6_assign ttl=300 negative_ttl=0 children-startup=1 children-max=10 %SRC %LOGIN /usr/local/bin/assign_ipv6.sh
+acl dynamic_ipv6 external ipv6_assign
+tcp_outgoing_address 2a10:9680:1::%> dynamic_ipv6
 EOL
-
-# Создание скрипта для генерации уникальных IPv6 адресов
-cat <<'EOL' > /usr/local/bin/generate_ipv6.sh
-#!/bin/bash
-while read login; do
-    printf "%x\n" $((RANDOM << 15 | RANDOM))
-done
-EOL
-
-chmod +x /usr/local/bin/generate_ipv6.sh
 
 # Генерация случайных логинов и паролей, и добавление их в файл паролей
 echo "Генерация случайных логинов и паролей..."
@@ -79,6 +73,16 @@ do
     echo "45.87.246.238:3128:$username:$password" >> /etc/squid/proxies.txt
 done
 
+# Создание скрипта для динамического назначения IPv6 адресов
+cat <<'EOL' > /usr/local/bin/assign_ipv6.sh
+#!/bin/bash
+while read src_ip login; do
+    echo $(printf "2a10:9680:1::%x" $((RANDOM % 65536)))
+done
+EOL
+
+chmod +x /usr/local/bin/assign_ipv6.sh
+
 # Перезапуск Squid для применения изменений
 echo "Перезапуск Squid..."
 systemctl restart squid
@@ -86,5 +90,11 @@ if [ $? -ne 0 ]; then
     echo "Ошибка при перезапуске Squid!"
     exit 1
 fi
+
+# Скрипт для ротации IPv6 адресов каждые 5 минут
+echo "Создание крон-задачи для ротации IPv6 адресов..."
+cat <<EOL > /etc/cron.d/rotate_squid_ipv6
+*/5 * * * * root systemctl reload squid
+EOL
 
 echo "Установка и настройка завершены! Прокси сохранены в /etc/squid/proxies.txt"
