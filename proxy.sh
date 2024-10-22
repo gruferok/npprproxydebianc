@@ -161,19 +161,27 @@ write_backconnect_proxies_to_file() {
     done
 }
 
-# Основной код скрипта
-get_user_input
-check_startup_parameters
-check_ipv6
-configure_ipv6
-install_required_packages
-install_3proxy
-generate_random_users_if_needed
-create_startup_script
-add_to_cron
+# Функция для получения IPv6 адреса
+get_ipv6_address() {
+    ip -6 addr show scope global | grep -oP '(?<=inet6\s)\S+'
+}
 
-# Создание конфигурационного файла для 3proxy
-cat > ~/proxyserver/3proxy.cfg <<EOL
+# Функция для генерации IPv6 адресов
+generate_ipv6_addresses() {
+    local ipv6_addr=$(get_ipv6_address | cut -d'/' -f1)
+    local subnet_mask=$(get_ipv6_address | cut -d'/' -f2)
+    local ipv6_prefix=$(echo $ipv6_addr | cut -d':' -f1-4)
+
+    for i in $(seq 1 $proxy_count); do
+        echo "${ipv6_prefix}:$(printf '%04x:%04x' $((RANDOM%65535)) $((RANDOM%65535)))/${subnet_mask}"
+    done
+}
+
+# Функция для создания конфигурационного файла 3proxy
+create_3proxy_config() {
+    local ipv6_addresses=($(generate_ipv6_addresses))
+    
+    cat > ~/proxyserver/3proxy.cfg <<EOL
 daemon
 maxconn 2000
 nserver 1.1.1.1
@@ -188,9 +196,37 @@ auth $([[ "$use_random_auth" = true ]] && echo "strong" || echo "none")
 users $([ -f ~/proxyserver/users.txt ] && cat ~/proxyserver/users.txt | tr '\n' ' ' || echo "$user:CL:$password")
 allow * * * *
 $(for i in $(seq 1 $proxy_count); do
-    echo "proxy -6 -n -a -p$((30000 + i - 1)) -i$(get_backconnect_ipv4) -e"
+    echo "proxy -6 -n -a -p$((30000 + i - 1)) -i${ipv6_addresses[$((i-1))]%/*} -e"
 done)
 EOL
+}
+
+# Функция для настройки дополнительных IPv6 адресов
+setup_additional_ipv6() {
+    local ipv6_addresses=($(generate_ipv6_addresses))
+    local interface=$(ip -6 route | grep default | awk '{print $5}')
+
+    for addr in "${ipv6_addresses[@]}"; do
+        ip -6 addr add $addr dev $interface
+    done
+}
+
+# Основной код скрипта
+get_user_input
+check_startup_parameters
+check_ipv6
+configure_ipv6
+install_required_packages
+install_3proxy
+generate_random_users_if_needed
+create_startup_script
+add_to_cron
+
+# Настройка дополнительных IPv6 адресов
+setup_additional_ipv6
+
+# Создание конфигурационного файла для 3proxy
+create_3proxy_config
 
 # Запуск прокси-сервера
 run_proxy_server
