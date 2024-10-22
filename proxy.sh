@@ -50,10 +50,10 @@ proxy_dir="$HOME/proxyserver"
 mkdir -p $proxy_dir
 
 # Set default values
-subnet=64
+subnet=48
 proxies_type="http"
 start_port=30000
-proxy_count=100
+proxy_count=10
 mode_flag="-6"
 
 # Install required packages
