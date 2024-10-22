@@ -108,8 +108,21 @@ rnd_subnet_ip() {
 # Check if IPv6 address list exists and generate addresses
 delete_file_if_exists "$proxy_dir/ipv6.list"
 for i in $(seq 1 "$proxy_count"); do
-    rnd_subnet_ip >> "$proxy_dir/ipv6.list"
+    ipv6_addr=$(rnd_subnet_ip)
+    if [ -n "$ipv6_addr" ]; then
+        echo "$ipv6_addr" >> "$proxy_dir/ipv6.list"
+        echo "Generated IPv6 address: $ipv6_addr"
+    else
+        echo "Error: Failed to generate IPv6 address for proxy $i"
+        exit 1
+    fi
 done
+
+# Ensure IPv6 address list is not empty
+if [ ! -s "$proxy_dir/ipv6.list" ]; then
+  echo "Error: IPv6 address list is empty."
+  exit 1
+fi
 
 # Create 3proxy config with random login and password
 cat > "$proxy_dir/3proxy.cfg" <<EOF
@@ -128,9 +141,12 @@ EOF
 for i in $(seq 0 $((proxy_count-1))); do
   generate_random_credentials
   ipv6_address=$(sed "${i}q;d" "$proxy_dir/ipv6.list")
+  
+  # Ensure IPv6 address exists for the current proxy
   if [ -n "$ipv6_address" ]; then
     echo "users $random_user:CL:$random_pass" >> "$proxy_dir/3proxy.cfg"
     echo "proxy -6 -n -a -p$((start_port + i)) -i127.0.0.1 -e$ipv6_address" >> "$proxy_dir/3proxy.cfg"
+    echo "Added proxy with IPv6 address: $ipv6_address"
   else
     echo "Error: Missing IPv6 address for proxy $i"
     exit 1
