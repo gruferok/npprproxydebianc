@@ -18,19 +18,22 @@ write_backconnect_proxies_to_file() {
 
 # Function to install 3proxy
 install_3proxy() {
-  mkdir -p $proxy_dir && cd $proxy_dir
+  cd $proxy_dir
 
   echo -e "\nDownloading proxy server source..."
   wget https://github.com/3proxy/3proxy/archive/refs/tags/0.9.4.tar.gz
   tar -xf 0.9.4.tar.gz
   rm 0.9.4.tar.gz
+  
+  # Remove existing 3proxy directory if it exists
+  rm -rf 3proxy
   mv 3proxy-0.9.4 3proxy
   echo "Proxy server source code downloaded successfully"
 
   echo -e "\nStart building proxy server execution file from source..."
   cd 3proxy
-  make -f Makefile
-  if test -f "bin/3proxy" || test -f "src/3proxy"; then
+  make -f Makefile.Linux
+  if [ -f "bin/3proxy" ] || [ -f "src/3proxy" ]; then
     echo "Proxy server built successfully"
     # Ensure the binary is in the right place
     mkdir -p bin
@@ -47,10 +50,10 @@ proxy_dir="$HOME/proxyserver"
 mkdir -p $proxy_dir
 
 # Set default values
-subnet=48
+subnet=64
 proxies_type="http"
 start_port=30000
-proxy_count=10
+proxy_count=100
 mode_flag="-6"
 
 # Install required packages
