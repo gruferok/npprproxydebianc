@@ -7,22 +7,24 @@ delete_file_if_exists() {
   fi
 }
 
-# Function to remove old 3proxy installation
-remove_old_3proxy() {
-  echo "Removing old 3proxy installation if exists..."
-  if [ -d "$proxy_dir/3proxy" ]; then
-    rm -rf "$proxy_dir/3proxy"
-    echo "Old 3proxy removed."
+# Function to create a new file if current file can't be created
+create_new_file_if_failed() {
+  local file="$1"
+  
+  # Try to create a file, if it fails, create a new one with a unique name
+  if ! touch "$file"; then
+    local new_file="$file-$(date +%Y%m%d%H%M%S)"
+    touch "$new_file"
+    if [ $? -eq 0 ]; then
+      echo "Unable to create file '$file'. New file created: '$new_file'"
+      echo "$new_file"
+    else
+      echo "Error: Failed to create both '$file' and '$new_file'."
+      exit 1
+    fi
+  else
+    echo "$file"
   fi
-}
-
-# Function to write proxies to file
-write_backconnect_proxies_to_file() {
-  delete_file_if_exists "$proxy_dir/proxy.txt"
-
-  for port in $(eval echo "{$start_port..$last_port}"); do
-    echo "$backconnect_ipv4:$port:$random_user:$random_pass" >> "$proxy_dir/proxy.txt"
-  done
 }
 
 # Function to install 3proxy
@@ -34,8 +36,8 @@ install_3proxy() {
   tar -xf 0.9.4.tar.gz
   rm 0.9.4.tar.gz
 
-  # Ensure old 3proxy is removed before moving new files
-  remove_old_3proxy
+  # Remove old installation if exists
+  rm -rf 3proxy
   mv 3proxy-0.9.4 3proxy
   echo "Proxy server source code downloaded successfully"
 
@@ -44,7 +46,6 @@ install_3proxy() {
   make -f Makefile.Linux
   if [ -f "bin/3proxy" ] || [ -f "src/3proxy" ]; then
     echo "Proxy server built successfully"
-    # Ensure the binary is in the right place
     mkdir -p bin
     [ -f "src/3proxy" ] && mv src/3proxy bin/
   else
@@ -105,12 +106,12 @@ rnd_subnet_ip() {
     done
 }
 
-# Check if IPv6 address list exists and generate addresses
-delete_file_if_exists "$proxy_dir/ipv6.list"
+# Generate IPv6 addresses and create new file if needed
+ipv6_list_file=$(create_new_file_if_failed "$proxy_dir/ipv6.list")
 for i in $(seq 1 "$proxy_count"); do
     ipv6_addr=$(rnd_subnet_ip)
     if [ -n "$ipv6_addr" ]; then
-        echo "$ipv6_addr" >> "$proxy_dir/ipv6.list"
+        echo "$ipv6_addr" >> "$ipv6_list_file"
         echo "Generated IPv6 address: $ipv6_addr"
     else
         echo "Error: Failed to generate IPv6 address for proxy $i"
@@ -119,13 +120,14 @@ for i in $(seq 1 "$proxy_count"); do
 done
 
 # Ensure IPv6 address list is not empty
-if [ ! -s "$proxy_dir/ipv6.list" ]; then
+if [ ! -s "$ipv6_list_file" ]; then
   echo "Error: IPv6 address list is empty."
   exit 1
 fi
 
 # Create 3proxy config with random login and password
-cat > "$proxy_dir/3proxy.cfg" <<EOF
+config_file=$(create_new_file_if_failed "$proxy_dir/3proxy.cfg")
+cat > "$config_file" <<EOF
 daemon
 nserver 1.1.1.1
 nscache 65536
@@ -140,12 +142,12 @@ EOF
 # Add random user credentials and proxy configuration to 3proxy config
 for i in $(seq 0 $((proxy_count-1))); do
   generate_random_credentials
-  ipv6_address=$(sed "${i}q;d" "$proxy_dir/ipv6.list")
+  ipv6_address=$(sed "${i}q;d" "$ipv6_list_file")
   
   # Ensure IPv6 address exists for the current proxy
   if [ -n "$ipv6_address" ]; then
-    echo "users $random_user:CL:$random_pass" >> "$proxy_dir/3proxy.cfg"
-    echo "proxy -6 -n -a -p$((start_port + i)) -i127.0.0.1 -e$ipv6_address" >> "$proxy_dir/3proxy.cfg"
+    echo "users $random_user:CL:$random_pass" >> "$config_file"
+    echo "proxy -6 -n -a -p$((start_port + i)) -i127.0.0.1 -e$ipv6_address" >> "$config_file"
     echo "Added proxy with IPv6 address: $ipv6_address"
   else
     echo "Error: Missing IPv6 address for proxy $i"
@@ -156,12 +158,15 @@ done
 # Start 3proxy
 ulimit -n 600000
 ulimit -u 600000
-"$proxy_dir/3proxy/bin/3proxy" "$proxy_dir/3proxy.cfg" &
+"$proxy_dir/3proxy/bin/3proxy" "$config_file" &
 
 # Write proxies to file
 backconnect_ipv4=$(curl -s https://ipinfo.io/ip)
 last_port=$((start_port + proxy_count - 1))
-write_backconnect_proxies_to_file
+proxy_file=$(create_new_file_if_failed "$proxy_dir/proxy.txt")
+for port in $(eval echo "{$start_port..$last_port}"); do
+    echo "$backconnect_ipv4:$port:$random_user:$random_pass" >> "$proxy_file"
+done
 
 # Display final message
-echo "Файл с прокси создан по адресу - $proxy_dir/proxy.txt"
+echo "Файл с прокси создан по адресу - $proxy_file"
