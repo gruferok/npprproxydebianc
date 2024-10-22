@@ -160,7 +160,7 @@ echo "Установка началась. Ожидайте..."
 (sleep 10)  # Имитируем процесс установки задержкой в 10 секунд
 
 # Перенаправляем весь вывод в лог-файл
-exec > /var/tmp/ipv6-proxy-server-install.log 2>&1
+#exec > /var/tmp/ipv6-proxy-server-install.log 2>&1
 
 # Убедитесь, что все необходимые утилиты установлены
 required_packages=("openssl" "zip" "curl" "jq")
@@ -654,21 +654,21 @@ function create_startup_script() {
   echo "\$immutable_config_part"\$'\n'"\$auth_part"\$'\n'"\$access_rules_part"  > $proxyserver_config_path;
 
   # Add all ipv6 backconnect proxy with random addresses in proxy server startup config
-  port=$start_port  # Используем один фиксированный порт
+  port=$start_port  # Используем один порт
   count=0
   if [ "$proxies_type" = "http" ]; then proxy_startup_depending_on_type="proxy $mode_flag -n -a"; else proxy_startup_depending_on_type="socks $mode_flag -a"; fi;
   if [ $use_random_auth = true ]; then readarray -t proxy_random_credentials < $random_users_list_file; fi;
   for random_ipv6_address in \$(cat $random_ipv6_list_file); do
       if [ $use_random_auth = true ]; then
-          IFS=":";
-          read -r username password <<< "\${proxy_random_credentials[\$count]}";
-          echo "flush" >> $proxyserver_config_path;
-          echo "users \$username:CL:\$password" >> $proxyserver_config_path;
-          echo "\$access_rules_part" >> $proxyserver_config_path;
-          IFS=$' \t\n';
+        IFS=":";
+        read -r username password <<< "\${proxy_random_credentials[\$count]}";
+        echo "flush" >> $proxyserver_config_path;
+        echo "users \$username:CL:\$password" >> $proxyserver_config_path;
+        echo "\$access_rules_part" >> $proxyserver_config_path;
+        IFS=$' \t\n';
       fi;
-      # Добавляем IPv6 с одним и тем же портом:
       echo "\$proxy_startup_depending_on_type -p\$port -i$backconnect_ipv4 -e\$random_ipv6_address" >> $proxyserver_config_path;
+      #((port+=1))  # Удаляем инкремент порта
       ((count+=1))
   done
 
