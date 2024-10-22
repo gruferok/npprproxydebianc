@@ -9,16 +9,16 @@ delete_file_if_exists() {
 
 # Function to write proxies to file
 write_backconnect_proxies_to_file() {
-  delete_file_if_exists $proxy_dir/proxy.txt
+  delete_file_if_exists "$proxy_dir/proxy.txt"
 
   for port in $(eval echo "{$start_port..$last_port}"); do
-    echo "$backconnect_ipv4:$port:$random_user:$random_pass" >> $proxy_dir/proxy.txt
+    echo "$backconnect_ipv4:$port:$random_user:$random_pass" >> "$proxy_dir/proxy.txt"
   done
 }
 
 # Function to install 3proxy
 install_3proxy() {
-  cd $proxy_dir
+  cd "$proxy_dir"
 
   echo -e "\nDownloading proxy server source..."
   wget https://github.com/3proxy/3proxy/archive/refs/tags/0.9.4.tar.gz
@@ -53,7 +53,7 @@ generate_random_credentials() {
 
 # Main script
 proxy_dir="$HOME/proxyserver"
-mkdir -p $proxy_dir
+mkdir -p "$proxy_dir"
 
 # Set default values
 start_port=30000
@@ -96,12 +96,15 @@ rnd_subnet_ip() {
     done
 }
 
-for i in $(seq 1 $proxy_count); do
-    rnd_subnet_ip >> $proxy_dir/ipv6.list
-done
+# Check if IPv6 address list exists and generate addresses
+if [ ! -s "$proxy_dir/ipv6.list" ]; then
+  for i in $(seq 1 "$proxy_count"); do
+      rnd_subnet_ip >> "$proxy_dir/ipv6.list"
+  done
+fi
 
 # Create 3proxy config with random login and password
-cat > $proxy_dir/3proxy.cfg <<EOF
+cat > "$proxy_dir/3proxy.cfg" <<EOF
 daemon
 nserver 1.1.1.1
 nscache 65536
@@ -111,21 +114,25 @@ setuid 65535
 stacksize 6291456 
 flush
 auth strong
-
 EOF
 
 # Add random user credentials and proxy configuration to 3proxy config
 for i in $(seq 0 $((proxy_count-1))); do
   generate_random_credentials
-  ipv6_address=$(sed "${i}q;d" $proxy_dir/ipv6.list)
-  echo "users $random_user:CL:$random_pass" >> $proxy_dir/3proxy.cfg
-  echo "proxy -6 -n -a -p$((start_port + i)) -i127.0.0.1 -e$ipv6_address" >> $proxy_dir/3proxy.cfg
+  ipv6_address=$(sed "${i}q;d" "$proxy_dir/ipv6.list")
+  if [ -n "$ipv6_address" ]; then
+    echo "users $random_user:CL:$random_pass" >> "$proxy_dir/3proxy.cfg"
+    echo "proxy -6 -n -a -p$((start_port + i)) -i127.0.0.1 -e$ipv6_address" >> "$proxy_dir/3proxy.cfg"
+  else
+    echo "Error: Missing IPv6 address for proxy $i"
+    exit 1
+  fi
 done
 
 # Start 3proxy
 ulimit -n 600000
 ulimit -u 600000
-$proxy_dir/3proxy/bin/3proxy $proxy_dir/3proxy.cfg &
+"$proxy_dir/3proxy/bin/3proxy" "$proxy_dir/3proxy.cfg" &
 
 # Write proxies to file
 backconnect_ipv4=$(curl -s https://ipinfo.io/ip)
