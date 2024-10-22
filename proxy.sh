@@ -39,7 +39,13 @@ rm 0.9.4.tar.gz
 cd 3proxy-0.9.4
 make -f Makefile
 mkdir -p $proxy_dir/3proxy/bin
-cp bin/3proxy $proxy_dir/3proxy/bin/
+cp src/3proxy $proxy_dir/3proxy/bin/
+
+# Verify 3proxy installation
+if [ ! -f "$proxy_dir/3proxy/bin/3proxy" ]; then
+    echo "Error: 3proxy binary not found. Installation failed."
+    exit 1
+fi
 
 # Configure IPv6
 interface_name=$(ip -br l | awk '$1 !~ "lo|vir|wl|@NONE" { print $1 }' | awk 'NR==1')
