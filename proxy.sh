@@ -7,6 +7,15 @@ delete_file_if_exists() {
   fi
 }
 
+# Function to remove old 3proxy installation
+remove_old_3proxy() {
+  echo "Removing old 3proxy installation if exists..."
+  if [ -d "$proxy_dir/3proxy" ]; then
+    rm -rf "$proxy_dir/3proxy"
+    echo "Old 3proxy removed."
+  fi
+}
+
 # Function to write proxies to file
 write_backconnect_proxies_to_file() {
   delete_file_if_exists "$proxy_dir/proxy.txt"
@@ -24,9 +33,9 @@ install_3proxy() {
   wget https://github.com/3proxy/3proxy/archive/refs/tags/0.9.4.tar.gz
   tar -xf 0.9.4.tar.gz
   rm 0.9.4.tar.gz
-  
-  # Remove existing 3proxy directory if it exists
-  rm -rf 3proxy
+
+  # Ensure old 3proxy is removed before moving new files
+  remove_old_3proxy
   mv 3proxy-0.9.4 3proxy
   echo "Proxy server source code downloaded successfully"
 
@@ -82,7 +91,7 @@ sysctl -p
 
 # Add route for IPv6 with your gateway, check if route exists before adding
 if ! ip -6 route show default | grep -q "$gateway"; then
-  ip -6 route add default via $gateway dev $interface_name
+  ip -6 route add default via "$gateway" dev "$interface_name"
 else
   echo "Route already exists"
 fi
@@ -97,11 +106,10 @@ rnd_subnet_ip() {
 }
 
 # Check if IPv6 address list exists and generate addresses
-if [ ! -s "$proxy_dir/ipv6.list" ]; then
-  for i in $(seq 1 "$proxy_count"); do
-      rnd_subnet_ip >> "$proxy_dir/ipv6.list"
-  done
-fi
+delete_file_if_exists "$proxy_dir/ipv6.list"
+for i in $(seq 1 "$proxy_count"); do
+    rnd_subnet_ip >> "$proxy_dir/ipv6.list"
+done
 
 # Create 3proxy config with random login and password
 cat > "$proxy_dir/3proxy.cfg" <<EOF
