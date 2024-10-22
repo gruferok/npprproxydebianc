@@ -699,7 +699,7 @@ function create_startup_script() {
   # Script that adds all random ipv6 to default interface and runs backconnect proxy server
   ulimit -n 600000
   ulimit -u 600000
-  ${user_home_dir}/proxyserver/3proxy/bin/3proxy ${proxyserver_config_path}
+  ${user_home_dir}/proxyserver/3proxy/bin/3proxy -d -f ${proxyserver_config_path}
   echo "DEBUG: Started 3proxy" >&2
 
   # Kill old 3proxy daemon, if it's working
