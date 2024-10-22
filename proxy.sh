@@ -506,6 +506,8 @@ function install_3proxy() {
 }
 
 function configure_ipv6() {
+  echo "DEBUG: Starting configure_ipv6 function" >&2
+
   # Enable sysctl options for rerouting and bind ips from subnet to default interface
   required_options=("conf.$interface_name.proxy_ndp" "conf.all.proxy_ndp" "conf.default.forwarding" "conf.all.forwarding" "ip_nonlocal_bind" "max_addresses")
   for option in ${required_options[@]}; do
@@ -514,17 +516,26 @@ function configure_ipv6() {
       full_option="net.ipv6.$option=16384"  # Увеличиваем максимальное количество адресов
     fi
     if ! cat /etc/sysctl.conf | grep -v "#" | grep -q $full_option; then 
+      echo "DEBUG: Adding $full_option to /etc/sysctl.conf" >&2
       echo $full_option >> /etc/sysctl.conf
+    else
+      echo "DEBUG: $full_option already exists in /etc/sysctl.conf" >&2
     fi
   done
+
+  echo "DEBUG: Applying sysctl changes" >&2
   sysctl -p &>> $script_log_file
 
   if [[ $(cat /proc/sys/net/ipv6/conf/$interface_name/proxy_ndp) == 1 ]] && [[ $(cat /proc/sys/net/ipv6/ip_nonlocal_bind) == 1 ]]; then
-    echo "IPv6 network sysctl data configured successfully";
+    echo "IPv6 network sysctl data configured successfully"
+    echo "DEBUG: IPv6 configuration successful" >&2
   else
-    cat /etc/sysctl.conf &>> $script_log_file;
-    log_err_and_exit "Error: cannot configure IPv6 config";
-  fi;
+    echo "DEBUG: IPv6 configuration failed. Dumping sysctl.conf:" >&2
+    cat /etc/sysctl.conf &>> $script_log_file
+    log_err_and_exit "Error: cannot configure IPv6 config"
+  fi
+
+  echo "DEBUG: Finished configure_ipv6 function" >&2
 }
 
 function add_to_cron() {
@@ -572,26 +583,35 @@ function generate_random_users_if_needed() {
 }
 
 function create_startup_script() {
-  delete_file_if_exists $startup_script_path;
+  echo "DEBUG: Starting create_startup_script function" >&2
 
-  is_auth_used;
-  local use_auth=$?;
+  delete_file_if_exists $startup_script_path
+  echo "DEBUG: Deleted existing startup script if present" >&2
+
+  is_auth_used
+  local use_auth=$?
+  echo "DEBUG: Authentication usage: $use_auth" >&2
 
   # Add main script that runs proxy server and rotates external ip's, if server is already running
+  echo "DEBUG: Writing startup script to $startup_script_path" >&2
   cat > $startup_script_path <<-EOF
   #!$bash_location
+
+  echo "DEBUG: Starting startup script execution" >&2
 
   # Remove leading whitespaces in every string in text
   function dedent() {
     local -n reference="\$1"
     reference="\$(echo "\$reference" | sed 's/^[[:space:]]*//')"
+    echo "DEBUG: Dedented text" >&2
   }
 
   # Save old 3proxy daemon pids, if exists
   proxyserver_process_pids=()
   while read -r pid; do
     proxyserver_process_pids+=(\$pid)
-  done < <(ps -ef | awk '/[3]proxy/{print $2}');
+  done < <(ps -ef | awk '/[3]proxy/{print $2}')
+  echo "DEBUG: Saved old 3proxy daemon pids: \${proxyserver_process_pids[*]}" >&2
 
   # Array with allowed symbols in hex (in ipv6 addresses)
   array=( 1 2 3 4 5 6 7 8 9 0 a b c d e f )
@@ -600,14 +620,15 @@ function create_startup_script() {
   function rh () { echo \${array[\$RANDOM%16]}; }
 
   rnd_subnet_ip () {
-    echo -n $(get_subnet_mask);
+    echo -n $(get_subnet_mask)
     symbol=$subnet
     while (( \$symbol < 128)); do
-      if ((\$symbol % 16 == 0)); then echo -n :; fi;
-      echo -n \$(rh);
-      let "symbol += 4";
-    done;
-    echo ;
+      if ((\$symbol % 16 == 0)); then echo -n :; fi
+      echo -n \$(rh)
+      let "symbol += 4"
+    done
+    echo
+    echo "DEBUG: Generated random subnet IP" >&2
   }
 
   immutable_config_part="daemon
@@ -623,7 +644,8 @@ function create_startup_script() {
     auth_part="
       auth strong
       users $user:CL:$password"
-  fi;
+  fi
+  echo "DEBUG: Auth part set" >&2
 
   if [ -n "$denied_hosts" ]; then
     access_rules_part="
@@ -633,13 +655,15 @@ function create_startup_script() {
     access_rules_part="
       allow * * $allowed_hosts
       deny *"
-  fi;
+  fi
+  echo "DEBUG: Access rules part set" >&2
 
-  dedent immutable_config_part;
-  dedent auth_part;
-  dedent access_rules_part;
+  dedent immutable_config_part
+  dedent auth_part
+  dedent access_rules_part
 
-  echo "\$immutable_config_part"\$'\n'"\$auth_part"\$'\n'"\$access_rules_part"  > $proxyserver_config_path;
+  echo "\$immutable_config_part"\$'\n'"\$auth_part"\$'\n'"\$access_rules_part"  > $proxyserver_config_path
+  echo "DEBUG: Written config to $proxyserver_config_path" >&2
 
   # Add dynamic IPv6 generation for each proxy
   port=$start_port
@@ -649,9 +673,12 @@ function create_startup_script() {
   else 
     proxy_startup_depending_on_type="socks -6 -a"
   fi
+  echo "DEBUG: Proxy startup type: \$proxy_startup_depending_on_type" >&2
+
   if [ $use_random_auth = true ]; then 
     readarray -t proxy_random_credentials < $random_users_list_file
-  fi;
+    echo "DEBUG: Loaded random credentials" >&2
+  fi
 
   for i in \$(seq 1 $proxy_count); do
     if [ $use_random_auth = true ]; then
@@ -661,25 +688,31 @@ function create_startup_script() {
       echo "users \$username:CL:\$password" >> $proxyserver_config_path
       echo "\$access_rules_part" >> $proxyserver_config_path
       IFS=\$' \t\n'
+      echo "DEBUG: Added random credentials for proxy \$i" >&2
     fi
     echo "\$proxy_startup_depending_on_type -p\$port -i$backconnect_ipv4 -e\$(rnd_subnet_ip)" >> $proxyserver_config_path
     ((port+=1))
     ((count+=1))
   done
+  echo "DEBUG: Added all proxy configurations" >&2
 
   # Script that adds all random ipv6 to default interface and runs backconnect proxy server
   ulimit -n 600000
   ulimit -u 600000
   ${user_home_dir}/proxyserver/3proxy/bin/3proxy ${proxyserver_config_path}
+  echo "DEBUG: Started 3proxy" >&2
 
   # Kill old 3proxy daemon, if it's working
   for pid in "\${proxyserver_process_pids[@]}"; do
-    kill \$pid;
-  done;
+    kill \$pid
+    echo "DEBUG: Killed old 3proxy process with PID \$pid" >&2
+  done
 
-  exit 0;
+  echo "DEBUG: Startup script execution completed" >&2
+  exit 0
 EOF
 
+  echo "DEBUG: Finished creating startup script" >&2
 }
 
 function close_ufw_backconnect_ports() {
