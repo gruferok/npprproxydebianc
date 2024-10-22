@@ -7,26 +7,6 @@ delete_file_if_exists() {
   fi
 }
 
-# Function to create a new file if current file can't be created
-create_new_file_if_failed() {
-  local file="$1"
-  
-  # Try to create a file, if it fails, create a new one with a unique name
-  if ! touch "$file"; then
-    local new_file="$file-$(date +%Y%m%d%H%M%S)"
-    touch "$new_file"
-    if [ $? -eq 0 ]; then
-      echo "Unable to create file '$file'. New file created: '$new_file'"
-      echo "$new_file"
-    else
-      echo "Error: Failed to create both '$file' and '$new_file'."
-      exit 1
-    fi
-  else
-    echo "$file"
-  fi
-}
-
 # Function to install 3proxy
 install_3proxy() {
   cd "$proxy_dir"
@@ -59,6 +39,29 @@ install_3proxy() {
 generate_random_credentials() {
   random_user=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 8)
   random_pass=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 12)
+}
+
+# Function to generate random IPv6 addresses
+generate_random_ipv6() {
+  array=(1 2 3 4 5 6 7 8 9 0 a b c d e f)
+  echo -n "$subnet_base:$(printf "%x\n" $((RANDOM % 65536))):$(printf "%x\n" $((RANDOM % 65536))):$(printf "%x\n" $((RANDOM % 65536))):"
+  for i in {1..4}; do
+      echo -n ${array[$RANDOM % 16]}
+  done
+}
+
+# Function to populate IPv6 list
+populate_ipv6_list() {
+  ipv6_list=()
+  for i in $(seq 1 "$proxy_count"); do
+    ipv6_addr=$(generate_random_ipv6)
+    if [ -n "$ipv6_addr" ]; then
+      ipv6_list+=("$ipv6_addr")
+    else
+      echo "Error: Failed to generate IPv6 address for proxy $i"
+      exit 1
+    fi
+  done
 }
 
 # Main script
@@ -97,36 +100,18 @@ else
   echo "Route already exists"
 fi
 
-# Generate random IPv6 addresses based on your subnet
-array=(1 2 3 4 5 6 7 8 9 0 a b c d e f)
-rnd_subnet_ip() {
-    echo -n "$subnet_base:$(printf "%x\n" $((RANDOM % 65536))):$(printf "%x\n" $((RANDOM % 65536))):$(printf "%x\n" $((RANDOM % 65536))):"
-    for i in {1..4}; do
-        echo -n ${array[$RANDOM % 16]}
-    done
-}
+# Populate IPv6 addresses into an array
+populate_ipv6_list
 
-# Generate IPv6 addresses and create new file if needed
-ipv6_list_file=$(create_new_file_if_failed "$proxy_dir/ipv6.list")
-for i in $(seq 1 "$proxy_count"); do
-    ipv6_addr=$(rnd_subnet_ip)
-    if [ -n "$ipv6_addr" ]; then
-        echo "$ipv6_addr" >> "$ipv6_list_file"
-        echo "Generated IPv6 address: $ipv6_addr"
-    else
-        echo "Error: Failed to generate IPv6 address for proxy $i"
-        exit 1
-    fi
-done
-
-# Ensure IPv6 address list is not empty
-if [ ! -s "$ipv6_list_file" ]; then
+# Ensure IPv6 addresses were generated
+if [ ${#ipv6_list[@]} -eq 0 ]; then
   echo "Error: IPv6 address list is empty."
   exit 1
 fi
 
-# Create 3proxy config with random login and password
-config_file=$(create_new_file_if_failed "$proxy_dir/3proxy.cfg")
+# Create 3proxy config
+config_file="$proxy_dir/3proxy.cfg"
+delete_file_if_exists "$config_file"
 cat > "$config_file" <<EOF
 daemon
 nserver 1.1.1.1
@@ -142,7 +127,7 @@ EOF
 # Add random user credentials and proxy configuration to 3proxy config
 for i in $(seq 0 $((proxy_count-1))); do
   generate_random_credentials
-  ipv6_address=$(sed "${i}q;d" "$ipv6_list_file")
+  ipv6_address="${ipv6_list[$i]}"
   
   # Ensure IPv6 address exists for the current proxy
   if [ -n "$ipv6_address" ]; then
@@ -163,7 +148,8 @@ ulimit -u 600000
 # Write proxies to file
 backconnect_ipv4=$(curl -s https://ipinfo.io/ip)
 last_port=$((start_port + proxy_count - 1))
-proxy_file=$(create_new_file_if_failed "$proxy_dir/proxy.txt")
+proxy_file="$proxy_dir/proxy.txt"
+delete_file_if_exists "$proxy_file"
 for port in $(eval echo "{$start_port..$last_port}"); do
     echo "$backconnect_ipv4:$port:$random_user:$random_pass" >> "$proxy_file"
 done
