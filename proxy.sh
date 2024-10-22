@@ -385,33 +385,27 @@ function remove_ipv6_addresses_from_iface() {
 
 function get_subnet_mask() {
   if [ -z $subnet_mask ]; then
-    # Если мы анализируем адреса из интерфейса и хотим использовать нижние подсети, нам нужно очистить существующий прокси из интерфейса перед анализом
+    # If we parse addresses from iface and want to use lower subnets, we need to clean existing proxy from interface before parsing
     if is_proxyserver_running; then kill_3proxy; fi;
     if is_proxyserver_installed; then remove_ipv6_addresses_from_iface; fi;
 
     full_blocks_count=$(($subnet / 16));
-    # Полный внешний IPv6-адрес, выделенный интерфейсу
+    # Full external ipv6 address, allocated to the interface
     ipv6=$(ip -6 addr | awk '{print $2}' | grep -m1 -oP '^(?!fe80)([0-9a-fA-F]{1,4}:)+[0-9a-fA-F]{1,4}' | cut -d '/' -f1);
 
     subnet_mask=$(echo $ipv6 | grep -m1 -oP '^(?!fe80)([0-9a-fA-F]{1,4}:){'$(($full_blocks_count - 1))'}[0-9a-fA-F]{1,4}');
     if [ $(expr $subnet % 16) -ne 0 ]; then
-      # Получаем последний "неполный" блок: если мы хотим подсеть /68, получаем блок от 64 до 80
+      # Get last "uncomplete" block: if we want /68 subnet, get block from 64 to 80
       block_part=$(echo $ipv6 | awk -v block=$(($full_blocks_count + 1)) -F ':' '{print $block}' | tr -d ' ');
-      # Поскольку ведущие нули могут быть пропущены в блоке, нам нужно добавить их при необходимости
+      # Because leading zeros can be skipped in the block, we need to add them if needed
       while ((${#block_part} < 4)); do block_part="0$block_part"; done;
-      # Получаем часть блока, необходимую для маски подсети: если мы хотим подсеть /72, мы получаем 2 символа - (72 (подсеть) - 64 (полные 4 блока)) / 4 (2^4) в одной шестнадцатеричной цифре
+      # Get part of block needed for subnet mask: if we want /72 subnet, we get 2 symbols - (72 (subnet) - 64 (full 4 blocks)) / 4 (2^4) in one hex digit
       symbols_to_include=$(echo $block_part | head -c $(($(expr $subnet % 16) / 4)));
       subnet_mask="$subnet_mask:$symbols_to_include";
     fi;
   fi;
 
   echo $subnet_mask;
-}
-
-function generate_dynamic_ipv6() {
-    local subnet_mask=$(get_subnet_mask)
-    local random_suffix=$(printf '%04x:%04x:%04x:%04x' $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)))
-    echo "${subnet_mask}${random_suffix}"
 }
 
 function delete_file_if_exists() {
@@ -485,18 +479,6 @@ function install_requred_packages() {
   for package in ${requred_packages[@]}; do install_package $package; done;
 
   echo -e "\nAll required packages installed successfully";
-}
-
-# Добавьте эту функцию в основной скрипт
-function create_generate_ipv6_script() {
-  cat > ${proxy_dir}/generate_ipv6.sh <<EOF
-#!/bin/bash
-
-subnet_mask=\$(cat ${proxy_dir}/subnet_mask)
-random_suffix=\$(printf '%04x:%04x:%04x:%04x' \$((RANDOM%65536)) \$((RANDOM%65536)) \$((RANDOM%65536)) \$((RANDOM%65536)))
-echo "\${subnet_mask}\${random_suffix}"
-EOF
-  chmod +x ${proxy_dir}/generate_ipv6.sh
 }
 
 function install_3proxy() {
@@ -590,28 +572,55 @@ function create_startup_script() {
   is_auth_used;
   local use_auth=$?;
 
-  # Добавляем основной скрипт, который запускает прокси-сервер и ротирует внешние IP-адреса, если сервер уже запущен
+  # Add main script that runs proxy server and rotates external ip's, if server is already running
   cat > $startup_script_path <<-EOF
   #!$bash_location
 
-  # Удаляем начальные пробелы в каждой строке текста
+  # Remove leading whitespaces in every string in text
   function dedent() {
     local -n reference="\$1"
     reference="\$(echo "\$reference" | sed 's/^[[:space:]]*//')"
   }
 
-  # Сохраняем старые PID-ы демона 3proxy, если они существуют
+  # Save old 3proxy daemon pids, if exists
   proxyserver_process_pids=()
   while read -r pid; do
     proxyserver_process_pids+=(\$pid)
   done < <(ps -ef | awk '/[3]proxy/{print $2}');
 
-  # Сохраняем старые IPv6-адреса во временный файл для удаления из интерфейса после ротации
+  # Save old IPv6 addresses in temporary file to delete from interface after rotating
   old_ipv6_list_file="$random_ipv6_list_file.old"
   if test -f $random_ipv6_list_file;
     then cp $random_ipv6_list_file \$old_ipv6_list_file;
     rm $random_ipv6_list_file;
   fi;
+
+  # Array with allowed symbols in hex (in ipv6 addresses)
+  array=( 1 2 3 4 5 6 7 8 9 0 a b c d e f )
+
+  # Generate random hex symbol
+  function rh () { echo \${array[\$RANDOM%16]}; }
+
+  rnd_subnet_ip () {
+    echo -n $(get_subnet_mask);
+    symbol=$subnet
+    while (( \$symbol < 128)); do
+      if ((\$symbol % 16 == 0)); then echo -n :; fi;
+      echo -n \$(rh);
+      let "symbol += 4";
+    done;
+    echo ;
+  }
+
+  # Temporary variable to count generated ip's in cycle
+  count=1
+
+  # Generate random 'proxy_count' ipv6 of specified subnet and write it to 'ip.list' file
+  while [ "\$count" -le $proxy_count ]
+  do
+    rnd_subnet_ip >> $random_ipv6_list_file;
+    ((count+=1))
+  done;
 
   immutable_config_part="daemon
     nserver 1.1.1.1
@@ -644,15 +653,12 @@ function create_startup_script() {
 
   echo "\$immutable_config_part"\$'\n'"\$auth_part"\$'\n'"\$access_rules_part"  > $proxyserver_config_path;
 
-  # Добавляем внешний скрипт для генерации IPv6-адресов
-  echo "external $bash_location $proxy_dir/generate_ipv6.sh" >> $proxyserver_config_path;
-
-  # Добавляем все IPv6 backconnect прокси со случайными адресами в конфигурацию запуска прокси-сервера
+  # Add all ipv6 backconnect proxy with random addresses in proxy server startup config
   port=$start_port
   count=0
-  if [ "$proxies_type" = "http" ]; then proxy_startup_depending_on_type="proxy -6 -n -a"; else proxy_startup_depending_on_type="socks -6 -a"; fi;
+  if [ "$proxies_type" = "http" ]; then proxy_startup_depending_on_type="proxy $mode_flag -n -a"; else proxy_startup_depending_on_type="socks $mode_flag -a"; fi;
   if [ $use_random_auth = true ]; then readarray -t proxy_random_credentials < $random_users_list_file; fi;
-  for i in \$(seq 1 $proxy_count); do
+  for random_ipv6_address in \$(cat $random_ipv6_list_file); do
       if [ $use_random_auth = true ]; then
         IFS=":";
         read -r username password <<< "\${proxy_random_credentials[\$count]}";
@@ -661,24 +667,25 @@ function create_startup_script() {
         echo "\$access_rules_part" >> $proxyserver_config_path;
         IFS=$' \t\n';
       fi;
-      echo "\$proxy_startup_depending_on_type -p\$port -i$backconnect_ipv4 -e\$(external)" >> $proxyserver_config_path;
+      echo "\$proxy_startup_depending_on_type -p\$port -i$backconnect_ipv4 -e\$random_ipv6_address" >> $proxyserver_config_path;
       ((port+=1))
       ((count+=1))
   done
 
-  # Скрипт, который добавляет все случайные IPv6 к интерфейсу по умолчанию и запускает backconnect прокси-сервер
+  # Script that adds all random ipv6 to default interface and runs backconnect proxy server
   ulimit -n 600000
   ulimit -u 600000
+  for ipv6_address in \$(cat ${random_ipv6_list_file}); do ip -6 addr add \$ipv6_address dev $interface_name; done;
   ${user_home_dir}/proxyserver/3proxy/bin/3proxy ${proxyserver_config_path}
 
-  # Убиваем старый демон 3proxy, если он работает
+  # Kill old 3proxy daemon, if it's working
   for pid in "\${proxyserver_process_pids[@]}"; do
     kill \$pid;
   done;
 
-  # Удаляем старый список случайных IP после запуска нового экземпляра 3proxy
+  # Remove old random ip list after running new 3proxy instance
   if test -f \$old_ipv6_list_file; then
-    # Удаляем старые IP из интерфейса
+    # Remove old ips from interface
     for ipv6_address in \$(cat \$old_ipv6_list_file); do ip -6 addr del \$ipv6_address dev $interface_name; done;
     rm \$old_ipv6_list_file;
   fi;
@@ -687,6 +694,7 @@ function create_startup_script() {
 EOF
 
 }
+
 function close_ufw_backconnect_ports() {
   if ! is_package_installed "ufw" || [ $use_localhost = true ] || ! test -f $backconnect_proxies_file; then return; fi;
 
@@ -851,9 +859,6 @@ else
 fi;
 backconnect_ipv4=$(get_backconnect_ipv4);
 generate_random_users_if_needed;
-echo "$(get_subnet_mask)" > ${proxy_dir}/subnet_mask;
-create_generate_ipv6_script;
-
 create_startup_script;
 add_to_cron;
 open_ufw_backconnect_ports;
