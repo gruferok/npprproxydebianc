@@ -80,8 +80,12 @@ echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
 echo "net.ipv6.ip_nonlocal_bind=1" >> /etc/sysctl.conf
 sysctl -p
 
-# Add route for IPv6 with your gateway
-ip -6 route add default via $gateway dev $interface_name
+# Add route for IPv6 with your gateway, check if route exists before adding
+if ! ip -6 route show default | grep -q "$gateway"; then
+  ip -6 route add default via $gateway dev $interface_name
+else
+  echo "Route already exists"
+fi
 
 # Generate random IPv6 addresses based on your subnet
 array=(1 2 3 4 5 6 7 8 9 0 a b c d e f)
