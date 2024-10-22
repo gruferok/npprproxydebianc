@@ -507,12 +507,17 @@ function install_3proxy() {
 
 function configure_ipv6() {
   # Enable sysctl options for rerouting and bind ips from subnet to default interface
-  required_options=("conf.$interface_name.proxy_ndp" "conf.all.proxy_ndp" "conf.default.forwarding" "conf.all.forwarding" "ip_nonlocal_bind");
+  required_options=("conf.$interface_name.proxy_ndp" "conf.all.proxy_ndp" "conf.default.forwarding" "conf.all.forwarding" "ip_nonlocal_bind" "max_addresses")
   for option in ${required_options[@]}; do
-    full_option="net.ipv6.$option=1";
-    if ! cat /etc/sysctl.conf | grep -v "#" | grep -q $full_option; then echo $full_option >> /etc/sysctl.conf; fi;
-  done;
-  sysctl -p &>> $script_log_file;
+    full_option="net.ipv6.$option=1"
+    if [ "$option" = "max_addresses" ]; then
+      full_option="net.ipv6.$option=16384"  # Увеличиваем максимальное количество адресов
+    fi
+    if ! cat /etc/sysctl.conf | grep -v "#" | grep -q $full_option; then 
+      echo $full_option >> /etc/sysctl.conf
+    fi
+  done
+  sysctl -p &>> $script_log_file
 
   if [[ $(cat /proc/sys/net/ipv6/conf/$interface_name/proxy_ndp) == 1 ]] && [[ $(cat /proc/sys/net/ipv6/ip_nonlocal_bind) == 1 ]]; then
     echo "IPv6 network sysctl data configured successfully";
@@ -559,7 +564,6 @@ function remove_from_cron() {
 function generate_random_users_if_needed() {
   # No need to generate random usernames and passwords for proxies, if auth=none or one username/password for all proxies provided
   if [ $use_random_auth != true ]; then return; fi;
-
   delete_file_if_exists $random_users_list_file;
 
   for i in $(seq 1 $proxy_count); do
@@ -567,11 +571,8 @@ function generate_random_users_if_needed() {
   done;
 }
 
-
 function create_startup_script() {
-  echo "Starting create_startup_script function" >> $script_log_file
   delete_file_if_exists $startup_script_path;
-  
 
   is_auth_used;
   local use_auth=$?;
@@ -579,6 +580,7 @@ function create_startup_script() {
   # Add main script that runs proxy server and rotates external ip's, if server is already running
   cat > $startup_script_path <<-EOF
   #!$bash_location
+
   # Remove leading whitespaces in every string in text
   function dedent() {
     local -n reference="\$1"
@@ -590,13 +592,6 @@ function create_startup_script() {
   while read -r pid; do
     proxyserver_process_pids+=(\$pid)
   done < <(ps -ef | awk '/[3]proxy/{print $2}');
-
-  # Save old IPv6 addresses in temporary file to delete from interface after rotating
-  old_ipv6_list_file="$random_ipv6_list_file.old"
-  if test -f $random_ipv6_list_file;
-    then cp $random_ipv6_list_file \$old_ipv6_list_file;
-    rm $random_ipv6_list_file;
-  fi;
 
   # Array with allowed symbols in hex (in ipv6 addresses)
   array=( 1 2 3 4 5 6 7 8 9 0 a b c d e f )
@@ -614,11 +609,6 @@ function create_startup_script() {
     done;
     echo ;
   }
-
-  # Generate random 'proxy_count' ipv6 of specified subnet and write it to 'ip.list' file
-  for ((i=1; i<=$proxy_count; i++)); do
-    rnd_subnet_ip >> $random_ipv6_list_file;
-  done;
 
   immutable_config_part="daemon
     nserver 1.1.1.1
@@ -651,32 +641,35 @@ function create_startup_script() {
 
   echo "\$immutable_config_part"\$'\n'"\$auth_part"\$'\n'"\$access_rules_part"  > $proxyserver_config_path;
 
-  # Add all ipv6 backconnect proxy with unique addresses in proxy server startup config
+  # Add dynamic IPv6 generation for each proxy
   port=$start_port
   count=0
-  if [ "$proxies_type" = "http" ]; then proxy_startup_depending_on_type="proxy $mode_flag -n -a"; else proxy_startup_depending_on_type="socks $mode_flag -a"; fi;
-  if [ $use_random_auth = true ]; then readarray -t proxy_random_credentials < $random_users_list_file; fi;
+  if [ "$proxies_type" = "http" ]; then 
+    proxy_startup_depending_on_type="proxy -6 -n -a"
+  else 
+    proxy_startup_depending_on_type="socks -6 -a"
+  fi
+  if [ $use_random_auth = true ]; then 
+    readarray -t proxy_random_credentials < $random_users_list_file
+  fi;
 
-  while IFS= read -r random_ipv6_address; do
+  for i in \$(seq 1 $proxy_count); do
     if [ $use_random_auth = true ]; then
-      IFS=":";
-      read -r username password <<< "\${proxy_random_credentials[\$count]}";
-      echo "flush" >> $proxyserver_config_path;
-      echo "users \$username:CL:\$password" >> $proxyserver_config_path;
-      echo "\$access_rules_part" >> $proxyserver_config_path;
-      IFS=$' \t\n';
-    fi;
-    echo "\$proxy_startup_depending_on_type -p\$port -i$backconnect_ipv4 -e\$random_ipv6_address" >> $proxyserver_config_path;
+      IFS=":"
+      read -r username password <<< "\${proxy_random_credentials[\$count]}"
+      echo "flush" >> $proxyserver_config_path
+      echo "users \$username:CL:\$password" >> $proxyserver_config_path
+      echo "\$access_rules_part" >> $proxyserver_config_path
+      IFS=\$' \t\n'
+    fi
+    echo "\$proxy_startup_depending_on_type -p\$port -i$backconnect_ipv4 -e\$(rnd_subnet_ip)" >> $proxyserver_config_path
     ((port+=1))
     ((count+=1))
-  done < $random_ipv6_list_file
+  done
 
   # Script that adds all random ipv6 to default interface and runs backconnect proxy server
   ulimit -n 600000
   ulimit -u 600000
-
-  for ipv6_address in \$(cat ${random_ipv6_list_file}); do ip -6 addr add \$ipv6_address dev $interface_name; done;
-
   ${user_home_dir}/proxyserver/3proxy/bin/3proxy ${proxyserver_config_path}
 
   # Kill old 3proxy daemon, if it's working
@@ -684,15 +677,9 @@ function create_startup_script() {
     kill \$pid;
   done;
 
-  # Remove old random ip list after running new 3proxy instance
-  if test -f \$old_ipv6_list_file; then
-    # Remove old ips from interface
-    for ipv6_address in \$(cat \$old_ipv6_list_file); do ip -6 addr del \$ipv6_address dev $interface_name; done;
-    rm \$old_ipv6_list_file;
-  fi;
-
   exit 0;
 EOF
+
 }
 
 function close_ufw_backconnect_ports() {
@@ -736,13 +723,10 @@ function open_ufw_backconnect_ports() {
 }
 
 function run_proxy_server() {
-  echo "Starting run_proxy_server function" >> $script_log_fil
   if [ ! -f $startup_script_path ]; then log_err_and_exit "Error: proxy startup script doesn't exist."; fi;
 
   chmod +x $startup_script_path;
-  echo "Running startup script" >> $script_log_file
-  $bash_location $startup_script_path >> $script_log_file 2>&1
-  echo "Startup script finished with exit code $?" >> $script_log_file
+  $bash_location $startup_script_path;
   if is_proxyserver_running; then
     echo -e "\nIPv6 proxy server started successfully. Backconnect IPv4 is available from $backconnect_ipv4:$start_port$credentials to $backconnect_ipv4:$last_port$credentials via $proxies_type protocol";
     echo "You can copy all proxies (with credentials) in this file: $backconnect_proxies_file";
@@ -755,7 +739,6 @@ function write_backconnect_proxies_to_file() {
   delete_file_if_exists $backconnect_proxies_file;
 
   local proxy_credentials=$credentials;
-
   if ! touch $backconnect_proxies_file &> $script_log_file; then
     echo "Backconnect proxies list file path: $backconnect_proxies_file" >> $script_log_file;
     log_err "Warning: provided invalid path to backconnect proxies list file";
@@ -768,15 +751,13 @@ function write_backconnect_proxies_to_file() {
     readarray -t proxy_random_credentials < $random_users_list_file;
   fi;
 
-  local port=$start_port
-  while IFS= read -r ipv6_address; do
+  for port in $(eval echo "{$start_port..$last_port}"); do
     if [ $use_random_auth = true ]; then
       proxy_credentials=":${proxy_random_credentials[$count]}";
       ((count+=1))
     fi;
-    echo "$backconnect_ipv4:$port$proxy_credentials $ipv6_address" >> $backconnect_proxies_file;
-    ((port+=1))
-  done < $random_ipv6_list_file
+    echo "$backconnect_ipv4:$port$proxy_credentials" >> $backconnect_proxies_file;
+  done;
 }
 
 function write_proxyserver_info() {
