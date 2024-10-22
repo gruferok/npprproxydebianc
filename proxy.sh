@@ -29,9 +29,12 @@ install_3proxy() {
 
   echo -e "\nStart building proxy server execution file from source..."
   cd 3proxy
-  make -f Makefile.Linux
-  if test -f "$proxy_dir/3proxy/bin/3proxy"; then
+  make -f Makefile
+  if test -f "bin/3proxy" || test -f "src/3proxy"; then
     echo "Proxy server built successfully"
+    # Ensure the binary is in the right place
+    mkdir -p bin
+    [ -f "src/3proxy" ] && mv src/3proxy bin/
   else
     echo "Error: proxy server build from source code failed."
     exit 1
