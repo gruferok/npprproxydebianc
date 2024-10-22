@@ -12,7 +12,7 @@ write_backconnect_proxies_to_file() {
   delete_file_if_exists $proxy_dir/proxy.txt
 
   for port in $(eval echo "{$start_port..$last_port}"); do
-    echo "$backconnect_ipv4:$port" >> $proxy_dir/proxy.txt
+    echo "$backconnect_ipv4:$port:$random_user:$random_pass" >> $proxy_dir/proxy.txt
   done
 }
 
@@ -45,16 +45,24 @@ install_3proxy() {
   cd ..
 }
 
+# Generate random user credentials
+generate_random_credentials() {
+  random_user=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 8)
+  random_pass=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 12)
+}
+
 # Main script
 proxy_dir="$HOME/proxyserver"
 mkdir -p $proxy_dir
 
 # Set default values
-subnet=48
-proxies_type="http"
 start_port=30000
 proxy_count=10
-mode_flag="-6"
+
+# Subnet and gateway for your network
+subnet_base="2a10:9680:1"
+prefix="/48"
+gateway="2a10:9680::1"
 
 # Install required packages
 apt update
@@ -72,10 +80,13 @@ echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
 echo "net.ipv6.ip_nonlocal_bind=1" >> /etc/sysctl.conf
 sysctl -p
 
-# Generate random IPv6 addresses
+# Add route for IPv6 with your gateway
+ip -6 route add default via $gateway dev $interface_name
+
+# Generate random IPv6 addresses based on your subnet
 array=(1 2 3 4 5 6 7 8 9 0 a b c d e f)
 rnd_subnet_ip() {
-    echo -n 2001:0:ae1e:$(printf "%x\n" $((RANDOM % 65536))):$(printf "%x\n" $((RANDOM % 65536))):$(printf "%x\n" $((RANDOM % 65536))):
+    echo -n "$subnet_base:$(printf "%x\n" $((RANDOM % 65536))):$(printf "%x\n" $((RANDOM % 65536))):$(printf "%x\n" $((RANDOM % 65536))):"
     for i in {1..4}; do
         echo -n ${array[$RANDOM % 16]}
     done
@@ -85,7 +96,7 @@ for i in $(seq 1 $proxy_count); do
     rnd_subnet_ip >> $proxy_dir/ipv6.list
 done
 
-# Create 3proxy config
+# Create 3proxy config with random login and password
 cat > $proxy_dir/3proxy.cfg <<EOF
 daemon
 nserver 1.1.1.1
@@ -95,10 +106,17 @@ setgid 65535
 setuid 65535
 stacksize 6291456 
 flush
-auth none
+auth strong
 
-$(awk -v port="$start_port" '{print "proxy -6 -n -a -p"port" -i127.0.0.1 -e"$0; port++}' $proxy_dir/ipv6.list)
 EOF
+
+# Add random user credentials and proxy configuration to 3proxy config
+for i in $(seq 0 $((proxy_count-1))); do
+  generate_random_credentials
+  ipv6_address=$(sed "${i}q;d" $proxy_dir/ipv6.list)
+  echo "users $random_user:CL:$random_pass" >> $proxy_dir/3proxy.cfg
+  echo "proxy -6 -n -a -p$((start_port + i)) -i127.0.0.1 -e$ipv6_address" >> $proxy_dir/3proxy.cfg
+done
 
 # Start 3proxy
 ulimit -n 600000
