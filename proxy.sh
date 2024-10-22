@@ -697,10 +697,13 @@ EOF
 function close_ufw_backconnect_ports() {
   if ! is_package_installed "ufw" || [ $use_localhost = true ] || ! test -f $backconnect_proxies_file; then return; fi;
 
-  ufw delete allow $start_port/tcp >> $script_log_file;
-  ufw delete allow $start_port/udp >> $script_log_file;
+  local first_opened_port=$(head -n 1 $backconnect_proxies_file | awk -F ':' '{print $2}');
+  local last_opened_port=$(tail -n 1 $backconnect_proxies_file | awk -F ':' '{print $2}');
 
-  if ufw status | grep -qw $start_port; then
+  ufw delete allow $first_opened_port:$last_opened_port/tcp >> $script_log_file;
+  ufw delete allow $first_opened_port:$last_opened_port/udp >> $script_log_file;
+
+  if ufw status | grep -qw $first_opened_port:$last_opened_port; then
     log_err "Cannot delete UFW rules for backconnect proxies";
   else
     echo "UFW rules for backconnect proxies cleared successfully";
@@ -713,21 +716,21 @@ function open_ufw_backconnect_ports() {
   # No need open ports if backconnect proxies on localhost
   if [ $use_localhost = true ]; then return; fi;
 
-  if ! is_package_installed "ufw"; then echo "Firewall not installed, port for backconnect proxy opened successfully"; return; fi;
+  if ! is_package_installed "ufw"; then echo "Firewall not installed, ports for backconnect proxy opened successfully"; return; fi;
 
   if ufw status | grep -qw active; then
-    ufw allow $start_port/tcp >> $script_log_file;
-    ufw allow $start_port/udp >> $script_log_file;
+    ufw allow $start_port:$last_port/tcp >> $script_log_file;
+    ufw allow $start_port:$last_port/udp >> $script_log_file;
 
-    if ufw status | grep -qw $start_port; then
-      echo "UFW port for backconnect proxies opened successfully";
+    if ufw status | grep -qw $start_port:$last_port; then
+      echo "UFW ports for backconnect proxies opened successfully";
     else
       log_err $(ufw status);
-      log_err_and_exit "Cannot open port for backconnect proxies, configure ufw please";
+      log_err_and_exit "Cannot open ports for backconnect proxies, configure ufw please";
     fi;
 
   else
-    echo "UFW protection disabled, port for backconnect proxy opened successfully";
+    echo "UFW protection disabled, ports for backconnect proxy opened successfully";
   fi;
 }
 
@@ -737,7 +740,7 @@ function run_proxy_server() {
   chmod +x $startup_script_path;
   $bash_location $startup_script_path;
   if is_proxyserver_running; then
-    echo -e "\nIPv6 proxy server started successfully. Backconnect IPv4 is available from $backconnect_ipv4:$start_port$credentials via $proxies_type protocol";
+    echo -e "\nIPv6 proxy server started successfully. Backconnect IPv4 is available from $backconnect_ipv4:$start_port$credentials to $backconnect_ipv4:$last_port$credentials via $proxies_type protocol";
     echo "You can copy all proxies (with credentials) in this file: $backconnect_proxies_file";
   else
     log_err_and_exit "Error: cannot run proxy server";
@@ -760,12 +763,12 @@ function write_backconnect_proxies_to_file() {
     readarray -t proxy_random_credentials < $random_users_list_file;
   fi;
 
-  for i in $(seq 1 $proxy_count); do
+  for port in $(eval echo "{$start_port..$last_port}"); do
     if [ $use_random_auth = true ]; then
       proxy_credentials=":${proxy_random_credentials[$count]}";
       ((count+=1))
     fi;
-    echo "$backconnect_ipv4:$start_port$proxy_credentials" >> $backconnect_proxies_file;
+    echo "$backconnect_ipv4:$port$proxy_credentials" >> $backconnect_proxies_file;
   done;
 }
 
@@ -777,7 +780,7 @@ User info:
   Proxy count: $proxy_count
   Proxy type: $proxies_type
   Proxy IP: $(get_backconnect_ipv4)
-  Proxy port: $start_port
+  Proxy ports: between $start_port and $last_port
   Auth: $(if is_auth_used; then if [ $use_random_auth = true ]; then echo "random user/password for each proxy"; else echo "user - $user, password - $password"; fi; else echo "disabled"; fi;)
   Rules: $(if ([ -n "$denied_hosts" ] || [ -n "$allowed_hosts" ]); then if [ -n "$denied_hosts" ]; then echo "denied hosts - $denied_hosts, all others are allowed"; else echo "allowed hosts - $allowed_hosts, all others are denied"; fi; else echo "no rules specified, all hosts are allowed"; fi;)
   File with backconnect proxy list: $backconnect_proxies_file
