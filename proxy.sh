@@ -569,7 +569,9 @@ function generate_random_users_if_needed() {
 
 
 function create_startup_script() {
+  echo "Starting create_startup_script function" >> $script_log_file
   delete_file_if_exists $startup_script_path;
+  
 
   is_auth_used;
   local use_auth=$?;
@@ -734,10 +736,13 @@ function open_ufw_backconnect_ports() {
 }
 
 function run_proxy_server() {
+  echo "Starting run_proxy_server function" >> $script_log_file
   if [ ! -f $startup_script_path ]; then log_err_and_exit "Error: proxy startup script doesn't exist."; fi;
 
   chmod +x $startup_script_path;
+  echo "Running startup script" >> $script_log_file
   $bash_location $startup_script_path;
+  echo "Startup script finished" >> $script_log_file
   if is_proxyserver_running; then
     echo -e "\nIPv6 proxy server started successfully. Backconnect IPv4 is available from $backconnect_ipv4:$start_port$credentials to $backconnect_ipv4:$last_port$credentials via $proxies_type protocol";
     echo "You can copy all proxies (with credentials) in this file: $backconnect_proxies_file";
