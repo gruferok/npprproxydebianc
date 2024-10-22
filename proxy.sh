@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# Function to delete file if it exists
+delete_file_if_exists() {
+  if [ -f "$1" ]; then
+    rm "$1"
+  fi
+}
+
 # Function to write proxies to file
 write_backconnect_proxies_to_file() {
   delete_file_if_exists $proxy_dir/proxy.txt
@@ -14,24 +21,25 @@ proxy_dir="$HOME/proxyserver"
 mkdir -p $proxy_dir
 
 # Set default values
-subnet=48
+subnet=64
 proxies_type="http"
 start_port=30000
-proxy_count=10
+proxy_count=100
 mode_flag="-6"
 
 # Install required packages
 apt update
-apt install -y make g++ wget curl
+apt install -y make gcc g++ wget curl
 
 # Download and build 3proxy
 cd $proxy_dir
-wget https://github.com/3proxy/3proxy/archive/refs/tags/0.9.4.tar.gz
-tar -xf 0.9.4.tar.gz
+wget https://github.com/3proxy/3proxy/archive/0.9.4.tar.gz
+tar -xvzf 0.9.4.tar.gz
 rm 0.9.4.tar.gz
-mv 3proxy-0.9.4 3proxy
-cd 3proxy
-make -f Makefile.Linux
+cd 3proxy-0.9.4
+make -f Makefile
+mkdir -p $proxy_dir/3proxy/bin
+cp bin/3proxy $proxy_dir/3proxy/bin/
 
 # Configure IPv6
 interface_name=$(ip -br l | awk '$1 !~ "lo|vir|wl|@NONE" { print $1 }' | awk 'NR==1')
