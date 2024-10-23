@@ -20,6 +20,10 @@ auth_param basic casesensitive off
 
 acl authenticated proxy_auth REQUIRED
 http_access allow authenticated
+# IPv4 входящий
+tcp_outgoing_address 45.87.246.238
+
+# IPv6 исходящий (назначаем для каждого подключения уникальный IPv6)
 EOL
 
 # Генерация случайных логинов и паролей, и добавление их в файл паролей
