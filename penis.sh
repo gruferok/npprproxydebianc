@@ -28,10 +28,9 @@ http_access deny all
 
 # Включение расширенных логов
 debug_options ALL,1 33,2 28,9
-
 EOL
 
-# Генерация 10 прокси с уникальными логинами и паролями
+# Генерация 10 логинов и паролей
 echo "Генерация 10 логинов и паролей..."
 touch /etc/squid/passwd
 touch /etc/squid/proxies.txt
@@ -54,7 +53,7 @@ do
     fi
 
     # Генерируем уникальный IPv6 адрес
-    ipv6="2a10:9680:1::$(printf '%x' $i)"  # Используем $i вместо ошибки с неправильным значением
+    ipv6="2a10:9680:1::$(printf '%x' $i)"  # Убедитесь, что адреса корректные
 
     # Настраиваем уникальный порт для каждого прокси
     echo "http_port 45.87.246.238:$((3129 + $i)) name=proxy$i" >> /etc/squid/squid.conf
@@ -63,10 +62,10 @@ do
     echo "45.87.246.238:$((3129 + $i)):$username:$password" >> /etc/squid/proxies.txt
 
     # Создаем ACL для каждого прокси
-    echo "acl ipv6_$i myportname proxy$i" >> /etc/squid/squid.conf
+    echo "acl proxy$i myportname proxy$i" >> /etc/squid/squid.conf
     
     # Назначаем исходящий IPv6 для каждого прокси
-    echo "tcp_outgoing_address $ipv6 ipv6_$i" >> /etc/squid/squid.conf  # Используем правильный ACL ipv6_$i
+    echo "tcp_outgoing_address $ipv6 proxy$i" >> /etc/squid/squid.conf  # Правильный ACL
 done
 
 # Проверка конфигурации Squid
