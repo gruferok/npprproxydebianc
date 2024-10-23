@@ -619,8 +619,8 @@ function create_startup_script() {
 
   immutable_config_part="daemon
     nserver 1.1.1.1
-    maxconn 0
-    nscache 0
+    maxconn 9999999999999
+    nscache 9999999999999
     setgid 65535
     setuid 65535"
 
