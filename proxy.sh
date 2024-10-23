@@ -749,16 +749,12 @@ function write_backconnect_proxies_to_file() {
     return;
   fi;
 
-  local count=0
   if [ $use_random_auth = true ]; then
     while IFS=: read -r username password; do
-      local ipv6=$(sed -n "$((count+1))p" $random_ipv6_list_file)
-      echo "$backconnect_ipv4:$start_port:$username:$password:$ipv6" >> $backconnect_proxies_file;
-      count=$((count+1))
+      echo "$backconnect_ipv4:$start_port:$username:$password" >> $backconnect_proxies_file;
     done < $random_users_list_file
   else
-    local ipv6=$(head -n 1 $random_ipv6_list_file)
-    echo "$backconnect_ipv4:$start_port:$user:$password:$ipv6" >> $backconnect_proxies_file;
+    echo "$backconnect_ipv4:$start_port:$user:$password" >> $backconnect_proxies_file;
   fi;
 }
 
