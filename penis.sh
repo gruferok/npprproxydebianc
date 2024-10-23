@@ -27,22 +27,22 @@ echo "Генерация случайных логинов и паролей..."
 touch /etc/squid/passwd
 touch /etc/squid/proxies.txt
 
-for i in {1..10}  # Изменено на 10
+for i in {1..1000}
 do
     username="user$i"
     password=$(openssl rand -base64 12)
-
+    
     if [ $i -eq 1 ]; then
         htpasswd -c -b /etc/squid/passwd $username $password
     else
         htpasswd -b /etc/squid/passwd $username $password
     fi
-
+    
     if [ $? -ne 0 ]; then
         echo "Ошибка при создании пользователя $username!"
         exit 1
     fi
-
+    
     ipv6="2a10:9680:1::$(printf '%x' $i)"
     echo "http_port 45.87.246.238:$((30296 + $i)) name=proxy$i" >> /etc/squid/squid.conf
     echo "45.87.246.238:$((30296 + $i)):$username:$password" >> /etc/squid/proxies.txt
@@ -67,13 +67,13 @@ EOL
 # Скрипт для ротации IPv6 адресов
 cat <<EOL > /usr/bin/rotate_squid_ipv6.sh
 #!/bin/bash
-for i in {1..10}  # Изменено на 10
+for i in {1..1000}
 do
     ipv6="2a10:9680:1::\$(printf '%x' \$((i + RANDOM % 1000)))"
     sed -i "s/tcp_outgoing_address .*/tcp_outgoing_address \$ipv6 ipv6_$i/" /etc/squid/squid.conf
 done
 systemctl reload squid
-if [ \$? -ne 0 ]; then
+if [ $? -ne 0 ]; then
     echo "Ошибка при перезагрузке Squid!"
     exit 1
 fi
