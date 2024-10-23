@@ -619,7 +619,7 @@ function create_startup_script() {
 
   immutable_config_part="daemon
     nserver 1.1.1.1
-    maxconn 200
+    maxconn 20000000
     nscache 65536
     timeouts 1 5 30 60 180 1800 15 60
     setgid 65535
