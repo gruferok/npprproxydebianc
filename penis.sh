@@ -11,19 +11,28 @@ fi
 # Создание конфигурационного файла для Squid
 echo "Создание конфигурационного файла для Squid..."
 cat <<EOL > /etc/squid/squid.conf
+# Включаем поддержку IPv6
+dns_v4_first off
+dns_v6_first on
+
+# Настройка порта для входящих подключений по IPv4
 http_port 3128
+
+# Аутентификация пользователей
 auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
 auth_param basic children 5
 auth_param basic realm Squid proxy-caching web server
 auth_param basic credentialsttl 2 hours
 auth_param basic casesensitive off
 
+# Разрешаем доступ только аутентифицированным пользователям
 acl authenticated proxy_auth REQUIRED
 http_access allow authenticated
-# IPv4 входящий
+http_access deny all
+
+# Настройка IPv4 по умолчанию
 tcp_outgoing_address 45.87.246.238
 
-# IPv6 исходящий (назначаем для каждого подключения уникальный IPv6)
 EOL
 
 # Генерация случайных логинов и паролей, и добавление их в файл паролей
@@ -35,7 +44,8 @@ for i in {1..1000}
 do
     username="user$i"
     password=$(openssl rand -base64 12)
-    
+
+    # Добавляем логины и пароли
     if [ $i -eq 1 ]; then
         htpasswd -c -b /etc/squid/passwd $username $password
     else
@@ -46,11 +56,20 @@ do
         echo "Ошибка при создании пользователя $username!"
         exit 1
     fi
-    
+
+    # Генерируем уникальные IPv6-адреса
     ipv6="2a10:9680:1::$(printf '%x' $i)"
+
+    # Настраиваем уникальный порт для каждого пользователя
     echo "http_port 45.87.246.238:$((30296 + $i)) name=proxy$i" >> /etc/squid/squid.conf
+    
+    # Добавляем пользователя в список прокси
     echo "45.87.246.238:$((30296 + $i)):$username:$password" >> /etc/squid/proxies.txt
+
+    # Настраиваем ACL для каждого IPv6
     echo "acl ipv6_$i myportname proxy$i" >> /etc/squid/squid.conf
+    
+    # Назначаем исходящий IPv6 для каждого порта
     echo "tcp_outgoing_address $ipv6 ipv6_$i" >> /etc/squid/squid.conf
 done
 
