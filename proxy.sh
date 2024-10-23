@@ -557,7 +557,6 @@ function remove_from_cron() {
 }
 
 function generate_random_users_if_needed() {
-  # No need to generate random usernames and passwords for proxies, if auth=none or one username/password for all proxies provided
   if [ $use_random_auth != true ]; then return; fi;
   delete_file_if_exists $random_users_list_file;
 
@@ -565,6 +564,7 @@ function generate_random_users_if_needed() {
     echo $(create_random_string 8):$(create_random_string 8) >> $random_users_list_file;
   done;
 }
+
 
 function create_startup_script() {
   delete_file_if_exists $startup_script_path;
@@ -612,15 +612,8 @@ function create_startup_script() {
     echo ;
   }
 
-  # Temporary variable to count generated ip's in cycle
-  count=1
-
-  # Generate random 'proxy_count' ipv6 of specified subnet and write it to 'ip.list' file
-  while [ "\$count" -le $proxy_count ]
-  do
-    rnd_subnet_ip >> $random_ipv6_list_file;
-    ((count+=1))
-  done;
+  # Generate one random IPv6 address and write it to 'ip.list' file
+  rnd_subnet_ip >> $random_ipv6_list_file;
 
   immutable_config_part="daemon
     nserver 1.1.1.1
@@ -653,29 +646,23 @@ function create_startup_script() {
 
   echo "\$immutable_config_part"\$'\n'"\$auth_part"\$'\n'"\$access_rules_part"  > $proxyserver_config_path;
 
-  # Add all ipv6 backconnect proxy with random addresses in proxy server startup config
-  port=$start_port
-  count=0
+  # Add all users to one proxy
+  if [ $use_random_auth = true ]; then
+    echo "flush" >> $proxyserver_config_path;
+    while IFS=: read -r username password; do
+      echo "users \$username:CL:\$password" >> $proxyserver_config_path;
+    done < $random_users_list_file
+  fi
+
+  # Add one proxy with one port
+  random_ipv6_address=\$(cat $random_ipv6_list_file)
   if [ "$proxies_type" = "http" ]; then proxy_startup_depending_on_type="proxy $mode_flag -n -a"; else proxy_startup_depending_on_type="socks $mode_flag -a"; fi;
-  if [ $use_random_auth = true ]; then readarray -t proxy_random_credentials < $random_users_list_file; fi;
-  for random_ipv6_address in \$(cat $random_ipv6_list_file); do
-      if [ $use_random_auth = true ]; then
-        IFS=":";
-        read -r username password <<< "\${proxy_random_credentials[\$count]}";
-        echo "flush" >> $proxyserver_config_path;
-        echo "users \$username:CL:\$password" >> $proxyserver_config_path;
-        echo "\$access_rules_part" >> $proxyserver_config_path;
-        IFS=$' \t\n';
-      fi;
-      echo "\$proxy_startup_depending_on_type -p\$port -i$backconnect_ipv4 -e\$random_ipv6_address" >> $proxyserver_config_path;
-      ((port+=1))
-      ((count+=1))
-  done
+  echo "\$proxy_startup_depending_on_type -p$start_port -i$backconnect_ipv4 -e\$random_ipv6_address" >> $proxyserver_config_path;
 
   # Script that adds all random ipv6 to default interface and runs backconnect proxy server
   ulimit -n 600000
   ulimit -u 600000
-  for ipv6_address in \$(cat ${random_ipv6_list_file}); do ip -6 addr add \$ipv6_address dev $interface_name; done;
+  ip -6 addr add \$(cat ${random_ipv6_list_file}) dev $interface_name;
   ${user_home_dir}/proxyserver/3proxy/bin/3proxy ${proxyserver_config_path}
 
   # Kill old 3proxy daemon, if it's working
@@ -698,16 +685,13 @@ EOF
 function close_ufw_backconnect_ports() {
   if ! is_package_installed "ufw" || [ $use_localhost = true ] || ! test -f $backconnect_proxies_file; then return; fi;
 
-  local first_opened_port=$(head -n 1 $backconnect_proxies_file | awk -F ':' '{print $2}');
-  local last_opened_port=$(tail -n 1 $backconnect_proxies_file | awk -F ':' '{print $2}');
+  ufw delete allow $start_port/tcp >> $script_log_file;
+  ufw delete allow $start_port/udp >> $script_log_file;
 
-  ufw delete allow $first_opened_port:$last_opened_port/tcp >> $script_log_file;
-  ufw delete allow $first_opened_port:$last_opened_port/udp >> $script_log_file;
-
-  if ufw status | grep -qw $first_opened_port:$last_opened_port; then
-    log_err "Cannot delete UFW rules for backconnect proxies";
+  if ufw status | grep -qw $start_port; then
+    log_err "Cannot delete UFW rule for backconnect proxy";
   else
-    echo "UFW rules for backconnect proxies cleared successfully";
+    echo "UFW rule for backconnect proxy cleared successfully";
   fi;
 }
 
@@ -717,21 +701,20 @@ function open_ufw_backconnect_ports() {
   # No need open ports if backconnect proxies on localhost
   if [ $use_localhost = true ]; then return; fi;
 
-  if ! is_package_installed "ufw"; then echo "Firewall not installed, ports for backconnect proxy opened successfully"; return; fi;
+  if ! is_package_installed "ufw"; then echo "Firewall not installed, port for backconnect proxy opened successfully"; return; fi;
 
   if ufw status | grep -qw active; then
-    ufw allow $start_port:$last_port/tcp >> $script_log_file;
-    ufw allow $start_port:$last_port/udp >> $script_log_file;
+    ufw allow $start_port/tcp >> $script_log_file;
+    ufw allow $start_port/udp >> $script_log_file;
 
-    if ufw status | grep -qw $start_port:$last_port; then
-      echo "UFW ports for backconnect proxies opened successfully";
+    if ufw status | grep -qw $start_port; then
+      echo "UFW port for backconnect proxy opened successfully";
     else
       log_err $(ufw status);
-      log_err_and_exit "Cannot open ports for backconnect proxies, configure ufw please";
+      log_err_and_exit "Cannot open port for backconnect proxy, configure ufw please";
     fi;
-
   else
-    echo "UFW protection disabled, ports for backconnect proxy opened successfully";
+    echo "UFW protection disabled, port for backconnect proxy opened successfully";
   fi;
 }
 
@@ -751,26 +734,20 @@ function run_proxy_server() {
 function write_backconnect_proxies_to_file() {
   delete_file_if_exists $backconnect_proxies_file;
 
-  local proxy_credentials=$credentials;
   if ! touch $backconnect_proxies_file &> $script_log_file; then
     echo "Backconnect proxies list file path: $backconnect_proxies_file" >> $script_log_file;
     log_err "Warning: provided invalid path to backconnect proxies list file";
     return;
   fi;
 
-  if [ $use_random_auth = true ]; then
-    local proxy_random_credentials;
-    local count=0;
-    readarray -t proxy_random_credentials < $random_users_list_file;
-  fi;
+  echo "Proxy: $backconnect_ipv4:$start_port" >> $backconnect_proxies_file;
+  echo "Users:" >> $backconnect_proxies_file;
 
-  for port in $(eval echo "{$start_port..$last_port}"); do
-    if [ $use_random_auth = true ]; then
-      proxy_credentials=":${proxy_random_credentials[$count]}";
-      ((count+=1))
-    fi;
-    echo "$backconnect_ipv4:$port$proxy_credentials" >> $backconnect_proxies_file;
-  done;
+  if [ $use_random_auth = true ]; then
+    cat $random_users_list_file >> $backconnect_proxies_file;
+  else
+    echo "$user:$password" >> $backconnect_proxies_file;
+  fi;
 }
 
 function write_proxyserver_info() {
