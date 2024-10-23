@@ -16,7 +16,7 @@ http_port 3128
 
 # Аутентификация пользователей
 auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
-auth_param basic children 5
+auth_param basic children 25
 auth_param basic realm Squid proxy-caching web server
 auth_param basic credentialsttl 2 hours
 auth_param basic casesensitive off
