@@ -740,13 +740,12 @@ function write_backconnect_proxies_to_file() {
     return;
   fi;
 
-  echo "Proxy: $backconnect_ipv4:$start_port" >> $backconnect_proxies_file;
-  echo "Users:" >> $backconnect_proxies_file;
-
   if [ $use_random_auth = true ]; then
-    cat $random_users_list_file >> $backconnect_proxies_file;
+    while IFS=: read -r username password; do
+      echo "$backconnect_ipv4:$start_port:$username:$password" >> $backconnect_proxies_file;
+    done < $random_users_list_file
   else
-    echo "$user:$password" >> $backconnect_proxies_file;
+    echo "$backconnect_ipv4:$start_port:$user:$password" >> $backconnect_proxies_file;
   fi;
 }
 
