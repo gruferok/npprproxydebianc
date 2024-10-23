@@ -619,8 +619,7 @@ function create_startup_script() {
 
   immutable_config_part="daemon
     nserver 1.1.1.1
-    maxconn 9999999999999
-    nscache 9999999999999
+    timeouts 1 
     setgid 65535
     setuid 65535"
 
@@ -666,8 +665,8 @@ function create_startup_script() {
   done < $random_users_list_file
 
   # Script that adds all random ipv6 to default interface and runs backconnect proxy server
-  ulimit -n unlimited
-  ulimit -u unlimited
+  ulimit -n 60000000000
+  ulimit -u 60000000000
   while read ipv6_address; do
     ip -6 addr add \$ipv6_address dev $interface_name;
   done < ${random_ipv6_list_file}
