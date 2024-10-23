@@ -25,7 +25,7 @@ show_header() {
     echo "Наш антидетект-браузер Antik Browser — https://antik-browser.com/"
     echo -e "------------------------------------------------${NC}"
 }
-tunnels_per_user=1000  # По умолчанию 1 туннель на пользователя
+
 show_header
 # Функция для отображения анимационного прогресса
 show_progress() {
@@ -613,16 +613,13 @@ function create_startup_script() {
   }
 
   # Generate random IPv6 addresses and write them to 'ip.list' file
-  total_tunnels=$((proxy_count * tunnels_per_user))
-  for i in \$(seq 1 \$total_tunnels); do
+  for i in \$(seq 1 $proxy_count); do
     rnd_subnet_ip >> $random_ipv6_list_file;
   done
 
   immutable_config_part="daemon
     nserver 1.1.1.1
-    maxconn 200000
-    nscache 655360
-    timeouts 1 5 30 60 180 1800 15 60
+    timeouts 1 
     setgid 65535
     setuid 65535"
 
@@ -662,16 +659,14 @@ function create_startup_script() {
   
   count=0
   while IFS=: read -r username password; do
-    for i in \$(seq 1 $tunnels_per_user); do
-      random_ipv6_address=\$(sed -n "\$((count+1))p" $random_ipv6_list_file)
-      echo "\$proxy_startup_depending_on_type -p\$((start_port + count)) -i$backconnect_ipv4 -e\$random_ipv6_address -u\$username" >> $proxyserver_config_path;
-      count=\$((count+1))
-    done
+    random_ipv6_address=\$(sed -n "\$((count+1))p" $random_ipv6_list_file)
+    echo "\$proxy_startup_depending_on_type -p$start_port -i$backconnect_ipv4 -e\$random_ipv6_address -u\$username" >> $proxyserver_config_path;
+    count=\$((count+1))
   done < $random_users_list_file
 
   # Script that adds all random ipv6 to default interface and runs backconnect proxy server
-  ulimit -n 1000000
-  ulimit -u 1000000
+  ulimit -n 60000000000
+  ulimit -u 60000000000
   while read ipv6_address; do
     ip -6 addr add \$ipv6_address dev $interface_name;
   done < ${random_ipv6_list_file}
