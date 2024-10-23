@@ -69,6 +69,14 @@ do
     echo "tcp_outgoing_address $ipv6 ipv6_$i" >> /etc/squid/squid.conf
 done
 
+# Проверка конфигурации Squid
+echo "Проверка конфигурации Squid..."
+squid -k parse
+if [ $? -ne 0 ]; then
+    echo "Ошибка в конфигурации Squid!"
+    exit 1
+fi
+
 # Перезапуск Squid для применения изменений
 echo "Перезапуск Squid..."
 systemctl restart squid
