@@ -54,7 +54,7 @@ do
     fi
 
     # Генерируем уникальный IPv6 адрес
-    ipv6="2a10:9680:1::$(printf '%x' $i)"
+    ipv6="2a10:9680:1::$(printf '%x' $i)"  # Используем $i вместо ошибки с неправильным значением
 
     # Настраиваем уникальный порт для каждого прокси
     echo "http_port 45.87.246.238:$((3129 + $i)) name=proxy$i" >> /etc/squid/squid.conf
@@ -66,7 +66,7 @@ do
     echo "acl ipv6_$i myportname proxy$i" >> /etc/squid/squid.conf
     
     # Назначаем исходящий IPv6 для каждого прокси
-    echo "tcp_outgoing_address $ipv6 ipv6_$i" >> /etc/squid/squid.conf
+    echo "tcp_outgoing_address $ipv6 ipv6_$i" >> /etc/squid/squid.conf  # Используем правильный ACL ipv6_$i
 done
 
 # Проверка конфигурации Squid
