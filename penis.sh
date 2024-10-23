@@ -26,6 +26,9 @@ acl authenticated proxy_auth REQUIRED
 http_access allow authenticated
 http_access deny all
 
+# Включение расширенных логов
+debug_options ALL,1 33,2 28,9
+
 EOL
 
 # Генерация 10 прокси с уникальными логинами и паролями
