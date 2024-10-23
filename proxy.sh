@@ -1,5 +1,5 @@
 #!/bin/bash
-script_log_file="/var/log/proxy_installer.log"
+
 # ANSI цвета и стили
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -71,7 +71,6 @@ show_final_message() {
 
 # Функция для интерактивного ввода параметров
 get_user_input() {
-    echo "DEBUG: Entering get_user_input function"
     echo "Пожалуйста, введите следующие параметры для установки прокси:"
     
     # Подсеть
@@ -255,28 +254,21 @@ while true; do
     -- ) shift; break ;;
     * ) break ;;
   esac
-  echo "DEBUG: Exiting get_user_input function"
 done
 
 function log_err() {
-  echo "DEBUG: Entering log_err function"
   echo $1 1>&2;
   echo -e "$1\n" &>> $script_log_file;
-  echo "DEBUG: Exiting log_err function"
 }
 
 function log_err_and_exit() {
-echo "DEBUG: Entering log_err_and_exit function"
   log_err "$1";
   exit 1;
-  echo "DEBUG: Exiting log_err_and_exit function"
 }
 
 function log_err_print_usage_and_exit() {
-  echo "DEBUG: Entering log_err_print_usage_and_exit function"
   log_err "$1";
   usage;
-  echo "DEBUG: Exiting log_err_print_usage_and_exit function"
 }
 
 function is_valid_ip() {
@@ -284,13 +276,10 @@ function is_valid_ip() {
 }
 
 function is_auth_used() {
-  echo "DEBUG: Entering is_valid_ip function"
   if [ -z $user ] && [ -z $password ] && [ $use_random_auth = false ]; then false; return; else true; return; fi;
-  echo "DEBUG: Exiting is_valid_ip function"
 }
 
 function check_startup_parameters() {
-  echo "DEBUG: check_startup_parameters input"
   # Check validity of user provided arguments
   re='^[0-9]+$'
   if ! [[ $proxy_count =~ $re ]]; then
@@ -335,7 +324,6 @@ function check_startup_parameters() {
   if cat /sys/class/net/$interface_name/operstate 2>&1 | grep -q "No such file or directory"; then
     log_err_print_usage_and_exit "Incorrect ethernet interface name \"$interface_name\", provide correct name using parameter '--interface'";
   fi;
-  echo "DEBUG: check_startup_parameters out"
 }
 
 # Define all needed paths to scripts / configs / etc
@@ -365,51 +353,37 @@ last_port=$(($start_port + $proxy_count - 1));
 credentials=$(is_auth_used && [[ $use_random_auth == false ]] && echo -n ":$user:$password" || echo -n "");
 
 function is_proxyserver_installed() {
-  echo "DEBUG: is_proxyserver_installed input"
   if [ -d $proxy_dir ] && [ "$(ls -A $proxy_dir)" ]; then return 0; fi;
-  echo "DEBUG: is_proxyserver_installed out"
   return 1;
 }
 
 function is_proxyserver_running() {
-  echo "DEBUG: is_proxyserver_running input"
   if ps aux | grep -q $proxyserver_config_path; then return 0; else return 1; fi;
-  echo "DEBUG: is_proxyserver_running out"
 }
 
 function is_package_installed() {
-  echo "DEBUG: is_package_installed input"
   if [ $(dpkg-query -W -f='${Status}' $1 2>/dev/null | grep -c "ok installed") -eq 0 ]; then return 1; else return 0; fi;
-  echo "DEBUG: is_package_installed out"
 }
 
 function create_random_string() {
-  echo "DEBUG: create_random_string input"
   tr -dc A-Za-z0-9 </dev/urandom | head -c $1; echo ''
-  echo "DEBUG: create_random_string out"
 }
 
 function kill_3proxy() {
-echo "DEBUG: kill_3proxy input"
   ps -ef | awk '/[3]proxy/{print $2}' | while read -r pid; do
     kill $pid
-    echo "DEBUG: kill_3proxy out"
   done;
 }
 
 function remove_ipv6_addresses_from_iface() {
-  echo "DEBUG: remove_ipv6_addresses_from_iface input"
   if test -f $random_ipv6_list_file; then
     # Remove old ips from interface
     for ipv6_address in $(cat $random_ipv6_list_file); do ip -6 addr del $ipv6_address dev $interface_name; done;
     rm $random_ipv6_list_file;
-    echo "DEBUG: remove_ipv6_addresses_from_iface out"
   fi;
-  
 }
 
 function get_subnet_mask() {
-echo "DEBUG: get_subnet_mask input"
   if [ -z $subnet_mask ]; then
     # If we parse addresses from iface and want to use lower subnets, we need to clean existing proxy from interface before parsing
     if is_proxyserver_running; then kill_3proxy; fi;
@@ -432,29 +406,23 @@ echo "DEBUG: get_subnet_mask input"
   fi;
 
   echo $subnet_mask;
-  echo "DEBUG: get_subnet_mask out"
 }
 
 function delete_file_if_exists() {
-  echo "DEBUG: delete_file_if_exists input"
   if test -f $1; then rm $1; fi;
-  echo "DEBUG: delete_file_if_exists out"
 }
 
 function install_package() {
-echo "DEBUG: install_package input"
   if ! is_package_installed $1; then
     apt install $1 -y &>> $script_log_file;
     if ! is_package_installed $1; then
       log_err_and_exit "Error: cannot install \"$1\" package";
-      echo "DEBUG: install_package out"
     fi;
   fi;
 }
 
 # DONT use before curl package is installed
 function get_backconnect_ipv4() {
-  echo "DEBUG: get_backconnect_ipv4 input"
   if [ $use_localhost == true ]; then echo "127.0.0.1"; return; fi;
   if [ ! -z "$backconnect_ipv4" -a "$backconnect_ipv4" != " " ]; then echo $backconnect_ipv4; return; fi;
 
@@ -467,11 +435,9 @@ function get_backconnect_ipv4() {
   if is_valid_ip $maybe_ipv4; then echo $maybe_ipv4; return; fi;
 
   log_err_and_exit "Error: curl package not installed and cannot parse valid IP from interface info";
-  echo "DEBUG: get_backconnect_ipv4 out"
 }
 
 function check_ipv6() {
-echo "DEBUG: check_ipv6 input"
   # Check is ipv6 enabled or not
   if test -f /proc/net/if_inet6; then
     echo "IPv6 interface is enabled";
@@ -497,7 +463,7 @@ echo "DEBUG: check_ipv6 input"
       echo "Warning: $ifaces_config doesn't exist. Skipping interface configuration check.";
     fi;
   fi;
-  echo "DEBUG: check_ipv6 out"
+
   if [[ $(ping6 -c 1 google.com) != *"Network is unreachable"* ]] &> /dev/null; then
     echo "Test ping google.com using IPv6 successfully";
   else
@@ -516,7 +482,7 @@ function install_requred_packages() {
 }
 
 function install_3proxy() {
-  echo "DEBUG: install_3proxy input"
+
   mkdir $proxy_dir && cd $proxy_dir
 
   echo -e "\nDownloading proxy server source...";
@@ -537,11 +503,9 @@ function install_3proxy() {
     log_err_and_exit "Error: proxy server build from source code failed."
   fi;
   cd ..
-  echo "DEBUG: install_3proxy out"
 }
 
 function configure_ipv6() {
-  echo "DEBUG: configure_ipv6 input"
   # Enable sysctl options for rerouting and bind ips from subnet to default interface
   required_options=("conf.$interface_name.proxy_ndp" "conf.all.proxy_ndp" "conf.default.forwarding" "conf.all.forwarding" "ip_nonlocal_bind");
   for option in ${required_options[@]}; do
@@ -549,7 +513,7 @@ function configure_ipv6() {
     if ! cat /etc/sysctl.conf | grep -v "#" | grep -q $full_option; then echo $full_option >> /etc/sysctl.conf; fi;
   done;
   sysctl -p &>> $script_log_file;
-  echo "DEBUG: configure_ipv6 out"
+
   if [[ $(cat /proc/sys/net/ipv6/conf/$interface_name/proxy_ndp) == 1 ]] && [[ $(cat /proc/sys/net/ipv6/ip_nonlocal_bind) == 1 ]]; then
     echo "IPv6 network sysctl data configured successfully";
   else
@@ -559,7 +523,6 @@ function configure_ipv6() {
 }
 
 function add_to_cron() {
-  echo "DEBUG: add_to_cron input"
   delete_file_if_exists $cron_script_path;
 
   # Add startup script to cron (job scheduler) to restart proxy server after reboot and rotate proxy pool
@@ -572,7 +535,7 @@ function add_to_cron() {
 
   crontab $cron_script_path;
   systemctl restart cron;
-  echo "DEBUG: add_to_cron out"
+
   if crontab -l | grep -q $startup_script_path; then
     echo "Proxy startup script added to cron autorun successfully";
   else
@@ -581,12 +544,11 @@ function add_to_cron() {
 }
 
 function remove_from_cron() {
-  echo "DEBUG: remove_from_cron input"
   # Delete all occurrences of proxy script in crontab
   crontab -l | grep -v $startup_script_path > $cron_script_path;
   crontab $cron_script_path;
   systemctl restart cron;
-  echo "DEBUG: remove_from_cron out"
+
   if crontab -l | grep -q $startup_script_path; then
     log_err "Warning: cannot delete proxy script from crontab";
   else
@@ -595,18 +557,16 @@ function remove_from_cron() {
 }
 
 function generate_random_users_if_needed() {
-  echo "DEBUG: generate_random_users_if_needed input"
   # No need to generate random usernames and passwords for proxies, if auth=none or one username/password for all proxies provided
   if [ $use_random_auth != true ]; then return; fi;
   delete_file_if_exists $random_users_list_file;
-  echo "DEBUG: generate_random_users_if_needed out"
+
   for i in $(seq 1 $proxy_count); do
     echo $(create_random_string 8):$(create_random_string 8) >> $random_users_list_file;
   done;
 }
 
 function create_startup_script() {
-  echo "DEBUG: create_startup_script input"
   delete_file_if_exists $startup_script_path;
 
   is_auth_used;
@@ -729,14 +689,13 @@ function create_startup_script() {
     for ipv6_address in \$(cat \$old_ipv6_list_file); do ip -6 addr del \$ipv6_address dev $interface_name; done;
     rm \$old_ipv6_list_file;
   fi;
-  echo "DEBUG: create_startup_script out"
+
   exit 0;
 EOF
 
 }
 
 function close_ufw_backconnect_ports() {
-  echo "DEBUG: close_ufw_backconnect_ports input"
   if ! is_package_installed "ufw" || [ $use_localhost = true ] || ! test -f $backconnect_proxies_file; then return; fi;
 
   local first_opened_port=$(head -n 1 $backconnect_proxies_file | awk -F ':' '{print $2}');
@@ -750,11 +709,9 @@ function close_ufw_backconnect_ports() {
   else
     echo "UFW rules for backconnect proxies cleared successfully";
   fi;
-  echo "DEBUG: close_ufw_backconnect_ports out"
 }
 
 function open_ufw_backconnect_ports() {
-  echo "DEBUG: open_ufw_backconnect_ports input"
   close_ufw_backconnect_ports;
 
   # No need open ports if backconnect proxies on localhost
@@ -776,11 +733,9 @@ function open_ufw_backconnect_ports() {
   else
     echo "UFW protection disabled, ports for backconnect proxy opened successfully";
   fi;
-  echo "DEBUG: open_ufw_backconnect_ports out"
 }
 
 function run_proxy_server() {
-  echo "DEBUG: run_proxy_server input"
   if [ ! -f $startup_script_path ]; then log_err_and_exit "Error: proxy startup script doesn't exist."; fi;
 
   chmod +x $startup_script_path;
@@ -791,11 +746,9 @@ function run_proxy_server() {
   else
     log_err_and_exit "Error: cannot run proxy server";
   fi;
-  echo "DEBUG: run_proxy_server out"
 }
 
 function write_backconnect_proxies_to_file() {
-  echo "DEBUG: write_backconnect_proxies_to_file input"
   delete_file_if_exists $backconnect_proxies_file;
 
   local proxy_credentials=$credentials;
@@ -817,12 +770,10 @@ function write_backconnect_proxies_to_file() {
       ((count+=1))
     fi;
     echo "$backconnect_ipv4:$port$proxy_credentials" >> $backconnect_proxies_file;
-  echo "DEBUG: write_backconnect_proxies_to_file"
   done;
 }
 
 function write_proxyserver_info() {
-  echo "DEBUG: write_proxyserver_info input"
   delete_file_if_exists $proxyserver_info_file;
 
   cat > $proxyserver_info_file <<-EOF
@@ -916,7 +867,7 @@ write_backconnect_proxies_to_file;
 write_proxyserver_info;
 # Переименование файла
 mv $proxy_dir/backconnect_proxies.list $proxy_dir/proxy.txt
-echo "DEBUG: write_proxyserver_info out"
+
 # Добавление шапки
 header="Наши контакты:\n===========================================================================\nНаш ТГ — https://t.me/nppr_team\nНаш ВК — https://vk.com/npprteam\nТГ нашего магазина — https://t.me/npprteamshop\nМагазин аккаунтов, бизнес-менеджеров ФБ и Google— https://npprteam.shop\nНаш антидетект-браузер Antik Browser — https://antik-browser.com/\n===========================================================================\n"
 echo -e $header | cat - $proxy_dir/proxy.txt > temp && mv temp $proxy_dir/proxy.txt
