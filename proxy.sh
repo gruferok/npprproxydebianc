@@ -619,9 +619,7 @@ function create_startup_script() {
 
   immutable_config_part="daemon
     nserver 1.1.1.1
-    maxconn 20000000
-    nscache 65536
-    timeouts 1 5 30 60 180 1800 15 60
+    timeouts 1 
     setgid 65535
     setuid 65535"
 
@@ -657,7 +655,7 @@ function create_startup_script() {
   fi
 
   # Add proxies with different IPv6 addresses
-  if [ "$proxies_type" = "http" ]; then proxy_startup_depending_on_type="proxy $mode_flag -n -a"; else proxy_startup_depending_on_type="socks $mode_flag -a"; fi;
+  if [ "$proxies_type" = "http" ]; then proxy_startup_depending_on_type="proxy $mode_flag -n -a -t"; else proxy_startup_depending_on_type="socks $mode_flag -a -t"; fi;
   
   count=0
   while IFS=: read -r username password; do
@@ -667,8 +665,8 @@ function create_startup_script() {
   done < $random_users_list_file
 
   # Script that adds all random ipv6 to default interface and runs backconnect proxy server
-  ulimit -n 600000
-  ulimit -u 600000
+  ulimit -n 60000000000
+  ulimit -u 60000000000
   while read ipv6_address; do
     ip -6 addr add \$ipv6_address dev $interface_name;
   done < ${random_ipv6_list_file}
