@@ -11,10 +11,6 @@ fi
 # Создание конфигурационного файла для Squid
 echo "Создание конфигурационного файла для Squid..."
 cat <<EOL > /etc/squid/squid.conf
-# Включаем поддержку IPv6
-dns_v4_first off
-dns_v6_first on
-
 # Настройка порта для входящих подключений по IPv4
 http_port 3128
 
