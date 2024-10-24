@@ -18,6 +18,17 @@ http_port 3128
 # Принудительное использование IPv6
 dns_v4_first off
 dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
+tcp_outgoing_address 2a10:9680:1::1
+
+# Форсирование IPv6
+client_dst_passthru on
+dns_defnames on
+dns_retransmit_interval 5
+dns_timeout 5
+
+# IPv6 ACL
+acl ipv6_traffic proto ipv6
+prefer_direct on
 
 # Аутентификация
 auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
@@ -68,7 +79,7 @@ do
     echo "45.87.246.238:$port:$username:$password" >> /etc/squid/proxies.txt
 done
 
-# После генерации прокси добавить настройку маршрутизации IPv6:
+# Настройка маршрутизации IPv6
 echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
 sysctl -p
 
@@ -81,7 +92,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Перед перезапуском squid добавить проверку IPv6:
+# Проверка IPv6 маршрутизации
 ip -6 route show
 if [ $? -ne 0 ]; then
     echo "IPv6 маршрутизация не настроена!"
@@ -99,7 +110,7 @@ fi
 
 echo "Установка успешно завершена! Прокси сохранены в /etc/squid/proxies.txt"
 
-# Функция проверки прокси через IPv6
+# Функция проверки прокси
 check_proxy() {
     local host=$1
     local port=$2
@@ -108,27 +119,17 @@ check_proxy() {
     
     echo "Проверка $host:$port..."
     
-    # Проверка доступности
-    nc -zv -w5 $host $port >/dev/null 2>&1
-    local nc_status=$?
+    # Проверка с принудительным IPv6
+    local external_ip=$(curl -6 --proxy "$host:$port" --proxy-user "$user:$pass" -s -m 10 --retry 3 --retry-delay 2 -H "Accept: application/json" https://api64.ipify.org?format=json)
     
-    if [ $nc_status -eq 0 ]; then
-        # Получаем внешний IPv6
-        local external_ip=$(curl -6 --proxy "$host:$port" --proxy-user "$user:$pass" -s https://api64.ipify.org?format=json | grep -o '"ip":"[^"]*' | cut -d'"' -f4)
-        
-        if [[ $external_ip == 2a10* ]]; then
-            echo "Прокси $host:$port РАБОТАЕТ"
-            echo "Внешний IPv6: $external_ip"
-            
-            # Сохраняем IP для проверки уникальности
-            echo "$external_ip" >> /tmp/proxy_ips.txt
-            return 0
-        else
-            echo "Прокси $host:$port использует IPv4 или неверный IPv6"
-            return 1
-        fi
+    if [[ $external_ip == *"2a10"* ]]; then
+        ip=$(echo $external_ip | grep -o '"ip":"[^"]*' | cut -d'"' -f4)
+        echo "Прокси $host:$port РАБОТАЕТ"
+        echo "Внешний IPv6: $ip"
+        echo "$ip" >> /tmp/proxy_ips.txt
+        return 0
     else
-        echo "Прокси $host:$port НЕ РАБОТАЕТ"
+        echo "Прокси $host:$port использует IPv4 или неверный IPv6"
         return 1
     fi
 }
@@ -142,11 +143,16 @@ done < /etc/squid/proxies.txt
 
 # Проверка уникальности IPv6
 echo "Проверка уникальности IPv6 адресов..."
-DUPLICATE_IPS=$(sort /tmp/proxy_ips.txt | uniq -d)
-if [ -n "$DUPLICATE_IPS" ]; then
-    echo "Найдены повторяющиеся IPv6 адреса:"
-    echo "$DUPLICATE_IPS"
-    exit 1
+if [ -f /tmp/proxy_ips.txt ]; then
+    DUPLICATE_IPS=$(sort /tmp/proxy_ips.txt | uniq -d)
+    if [ -n "$DUPLICATE_IPS" ]; then
+        echo "Найдены повторяющиеся IPv6 адреса:"
+        echo "$DUPLICATE_IPS"
+        exit 1
+    else
+        echo "Все прокси используют уникальные IPv6 адреса"
+    fi
 else
-    echo "Все прокси используют уникальные IPv6 адреса"
+    echo "Не удалось получить IPv6 адреса от прокси"
+    exit 1
 fi
