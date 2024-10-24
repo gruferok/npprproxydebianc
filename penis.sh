@@ -3,6 +3,7 @@
 # Переменные
 INTERFACE="ens3"
 IPV6_GATEWAY="2a10:9680::1"
+SUBNET="2a10:9680:1::/48"
 IPV6_ADDRESSES=(
   "2a10:9680:1::1"
   "2a10:9680:1::2"
@@ -38,37 +39,35 @@ fi
 log_info "Интерфейс $INTERFACE найден."
 
 # Удаление старых IPv6 адресов
-log_info "Удаляем старые IPv6 адреса на интерфейсе $INTERFACE..."
+log_info "Удаляем старые IPv6 адреса в подсети $SUBNET на интерфейсе $INTERFACE..."
+log_debug "Пытаемся удалить все IPv6 адреса в подсети $SUBNET..."
+ip -6 addr flush dev "$INTERFACE" scope global 2>/dev/null
+if [ $? -ne 0 ]; then
+    log_error "Не удалось очистить IPv6 адреса на интерфейсе $INTERFACE."
+else
+    log_info "Старые IPv6 адреса успешно удалены."
+fi
+
+# Проверка, действительно ли адреса удалены
+log_debug "Проверка отсутствия старых IPv6 адресов на интерфейсе $INTERFACE..."
 for IP in "${IPV6_ADDRESSES[@]}"; do
-    log_debug "Проверяем наличие $IP..."
     if ip -6 addr show dev "$INTERFACE" | grep -q "$IP"; then
-        log_debug "Удаляем адрес $IP..."
-        ip -6 addr del "$IP/128" dev "$INTERFACE" 2>/dev/null
-        if [ $? -eq 0 ]; then
-            log_info "Адрес $IP удалён."
-        else
-            log_error "Ошибка при удалении адреса $IP."
-        fi
+        log_error "Адрес $IP всё ещё присутствует на интерфейсе. Не удалось удалить."
     else
-        log_debug "Адрес $IP не настроен на интерфейсе, пропускаем удаление."
+        log_info "Адрес $IP успешно удалён."
     fi
 done
-log_info "Старые IPv6 адреса удалены."
 
-# Настройка IPv6 адресов
+# Настройка новых IPv6 адресов
 log_info "Настраиваем IPv6 адреса на интерфейсе $INTERFACE..."
 for IP in "${IPV6_ADDRESSES[@]}"; do
-    log_debug "Проверяем, добавлен ли $IP..."
-    if ! ip -6 addr show dev "$INTERFACE" | grep -q "$IP"; then
-        log_debug "Добавляем адрес $IP..."
-        if ! ip -6 addr add "$IP/128" dev "$INTERFACE" 2>/dev/null; then
-            log_error "Ошибка при добавлении $IP. Возможно, он уже добавлен."
-        fi
+    log_debug "Добавляем адрес $IP..."
+    if ! ip -6 addr add "$IP/128" dev "$INTERFACE" 2>/dev/null; then
+        log_error "Ошибка при добавлении $IP."
     else
-        log_info "Адрес $IP уже добавлен, пропускаем."
+        log_info "Адрес $IP успешно добавлен."
     fi
 done
-log_info "IPv6 адреса успешно добавлены."
 
 # Удаление существующего маршрута
 log_info "Удаляем существующий маршрут..."
