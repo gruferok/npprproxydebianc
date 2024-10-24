@@ -16,35 +16,46 @@ cat <<EOL > /etc/squid/squid.conf
 http_port 3128
 
 # Принудительное использование IPv6
-dns_v4_first off
 dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
 tcp_outgoing_address 2a10:9680:1::1
 
 # Форсирование IPv6
 client_dst_passthru on
 dns_defnames on
-dns_retransmit_interval 5 seconds
-dns_timeout 5 seconds
+dns_retransmit_interval 5seconds
+dns_timeout 5seconds
+
+# Дополнительные настройки IPv6
+ipcache_size 1024
+ipcache_low 90
+ipcache_high 95
+
+# Принудительное использование IPv6 для исходящих соединений
+tcp_outgoing_address ::/0
+prefer_direct on
+dns_v6_first on
 
 # IPv6 ACL
 acl ipv6_traffic proto ipv6
-prefer_direct on
+acl localnet src 0.0.0.0/8 # RFC 1122 "This host on this network"
+acl localnet src fc00::/7    # RFC 4193 local private network range
+acl localnet src fe80::/10   # RFC 4291 link-local (directly plugged) machines
 
 # Аутентификация
 auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
 auth_param basic children 100
 auth_param basic realm Squid proxy-caching web server
-auth_param basic credentialsttl 2 hours
+auth_param basic credentialsttl 2hours
 auth_param basic casesensitive off
 
-# Базовый контроль доступа
+# Контроль доступа
 acl authenticated proxy_auth REQUIRED
-acl ipv6_net src all
 http_access allow authenticated
 http_access deny all
 
-# Включение расширенных логов
-debug_options ALL,1 33,2 28,9
+# Оптимизация производительности
+forwarded_for delete
+via off
 EOL
 
 # Генерация прокси
@@ -79,14 +90,20 @@ do
     echo "45.87.246.238:$port:$username:$password" >> /etc/squid/proxies.txt
 done
 
-# Настройка маршрутизации IPv6
+# Настройка IPv6
+echo "Настройка IPv6..."
+sysctl -w net.ipv6.conf.all.forwarding=1
+sysctl -w net.ipv6.conf.default.forwarding=1
 echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
+echo "net.ipv6.conf.default.forwarding=1" >> /etc/sysctl.conf
 sysctl -p
+
+# Добавление IPv6 адреса
+ip -6 addr add 2a10:9680:1::1/64 dev eth0
 
 # Проверка конфигурации
 echo "Проверка конфигурации Squid..."
 squid -k parse
-
 if [ $? -ne 0 ]; then
     echo "Ошибка в конфигурации Squid!"
     exit 1
@@ -102,7 +119,6 @@ fi
 # Перезапуск сервиса
 echo "Перезапуск Squid..."
 systemctl restart squid
-
 if [ $? -ne 0 ]; then
     echo "Ошибка при перезапуске Squid!"
     exit 1
