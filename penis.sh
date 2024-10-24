@@ -38,13 +38,17 @@ if ! ip link show "$INTERFACE" > /dev/null 2>&1; then
 fi
 log_info "Интерфейс $INTERFACE найден."
 
+# Вывод всех IPv6 адресов перед удалением для отладки
+log_debug "Текущие IPv6 адреса на интерфейсе $INTERFACE:"
+ip -6 addr show dev "$INTERFACE"
+
 # Удаление старых IPv6 адресов по одному
 log_info "Удаляем старые IPv6 адреса в подсети $SUBNET на интерфейсе $INTERFACE..."
 for IP in "${IPV6_ADDRESSES[@]}"; do
     log_debug "Проверяем наличие $IP на интерфейсе..."
     if ip -6 addr show dev "$INTERFACE" | grep -q "$IP"; then
         log_debug "Удаляем адрес $IP..."
-        if ! ip -6 addr del "$IP/128" dev "$INTERFACE" 2>/dev/null; then
+        if ! ip -6 addr del "$IP/128" dev "$INTERFACE"; then
             log_error "Ошибка при удалении адреса $IP."
         else
             log_info "Адрес $IP успешно удалён."
@@ -54,16 +58,15 @@ for IP in "${IPV6_ADDRESSES[@]}"; do
     fi
 done
 
-# Дополнительная проверка системных ошибок
-log_debug "Проверяем системные логи на предмет ошибок..."
-dmesg | tail -n 20
-journalctl -xe | tail -n 20
+# Повторный вывод IPv6 адресов для проверки удаления
+log_debug "IPv6 адреса на интерфейсе после удаления:"
+ip -6 addr show dev "$INTERFACE"
 
 # Настройка новых IPv6 адресов
 log_info "Настраиваем IPv6 адреса на интерфейсе $INTERFACE..."
 for IP in "${IPV6_ADDRESSES[@]}"; do
     log_debug "Добавляем адрес $IP..."
-    if ! ip -6 addr add "$IP/128" dev "$INTERFACE" 2>/dev/null; then
+    if ! ip -6 addr add "$IP/128" dev "$INTERFACE"; then
         log_error "Ошибка при добавлении $IP."
     else
         log_info "Адрес $IP успешно добавлен."
