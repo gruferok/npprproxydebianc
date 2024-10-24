@@ -44,6 +44,7 @@ log_message "Создание конфигурационного файла дл
 cat <<EOL > /etc/squid/squid.conf
 # Базовые настройки
 http_port 3128
+dns_v4_first off
 
 # IPv6 настройки
 dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
@@ -61,10 +62,12 @@ ipcache_low 90
 ipcache_high 95
 
 # Базовые ACL
-acl localnet src 0.0.0.0/8
-acl localnet src fc00::/7
-acl localnet src fe80::/10
-prefer_direct on
+acl localnet src all
+acl SSL_ports port 443
+acl Safe_ports port 80 443
+acl CONNECT method CONNECT
+http_access deny !Safe_ports
+http_access deny CONNECT !SSL_ports
 
 # Аутентификация
 auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
@@ -80,6 +83,19 @@ http_access deny all
 
 # Оптимизация
 forwarded_for delete
+request_header_access Via deny all
+request_header_access X-Forwarded-For deny all
+request_header_access From deny all
+visible_hostname unknown
+
+# IPv6 specific
+dns_packet_max 4096
+ipcache_size 4096
+fqdncache_size 4096
+
+# Debug
+debug_options ALL,1 28,9
+cache_log /var/log/squid/cache.log
 EOL
 check_command "Создание базовой конфигурации Squid"
 
