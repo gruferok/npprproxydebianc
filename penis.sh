@@ -27,13 +27,11 @@ if ! ip -6 addr show > /dev/null 2>&1; then
     exit 1
 fi
 
-# Установка Squid
-log_message "Установка Squid..."
+# Установка необходимых пакетов
+log_message "Установка необходимых пакетов..."
 apt-get update
-check_command "Обновление репозиториев"
-
-apt-get install -y squid apache2-utils
-check_command "Установка Squid и apache2-utils"
+apt-get install -y squid apache2-utils iputils-ping net-tools
+check_command "Установка пакетов"
 
 # Проверка интерфейса
 if ! ip link show ens3 > /dev/null 2>&1; then
@@ -123,20 +121,22 @@ ip -6 addr flush dev ens3
 ip -6 route flush dev ens3
 check_command "Очистка IPv6 настроек"
 
-# Настройка IPv6 адреса
-log_message "Настройка IPv6 адреса..."
-ip -6 addr add 2a10:9680:1::1/48 dev ens3
+# Базовая настройка интерфейса
+log_message "Настройка сетевого интерфейса..."
 ip link set dev ens3 up
-check_command "Добавление IPv6 адреса"
+ip -6 addr add 2a10:9680:1::1/48 dev ens3
+ip -6 addr add fe80::1/64 dev ens3 scope link
+check_command "Настройка адресов интерфейса"
 
 # Настройка маршрутизации
 log_message "Настройка маршрутизации IPv6..."
 ip -6 route add 2a10:9680::/48 dev ens3
 ip -6 route add default via 2a10:9680::1 dev ens3 metric 1
+ip -6 route add 2001:4860:4860::8888 via 2a10:9680::1
+ip -6 route add 2001:4860:4860::8844 via 2a10:9680::1
 check_command "Добавление маршрутов IPv6"
 
-# Настройка sysctl
-log_message "Настройка параметров ядра..."
+# Расширенные настройки sysctl
 cat > /etc/sysctl.d/99-ipv6.conf <<EOL
 net.ipv6.conf.all.forwarding=1
 net.ipv6.conf.default.forwarding=1
@@ -144,13 +144,21 @@ net.ipv6.conf.all.proxy_ndp=1
 net.ipv6.conf.default.proxy_ndp=1
 net.ipv6.conf.all.accept_ra=2
 net.ipv6.conf.default.accept_ra=2
+net.ipv6.conf.all.autoconf=0
+net.ipv6.conf.default.autoconf=0
+net.ipv6.conf.all.disable_ipv6=0
+net.ipv6.conf.default.disable_ipv6=0
+net.ipv6.conf.ens3.disable_ipv6=0
 EOL
 sysctl -p /etc/sysctl.d/99-ipv6.conf
 check_command "Настройка параметров ядра"
 
-# Проверка IPv6 связности
+# Добавляем паузу для стабилизации сети
+sleep 3
+
+# Проверка IPv6 связности с подробным выводом
 log_message "Проверка IPv6 связности..."
-ping6 -c 1 2001:4860:4860::8888 > /dev/null 2>&1
+ping6 -c 3 -I ens3 2001:4860:4860::8888
 check_command "Проверка связности с Google DNS"
 
 # Проверка конфигурации Squid
