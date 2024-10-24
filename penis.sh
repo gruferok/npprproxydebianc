@@ -126,15 +126,14 @@ check_command "Очистка IPv6 настроек"
 # Настройка IPv6 адреса
 log_message "Настройка IPv6 адреса..."
 ip -6 addr add 2a10:9680:1::1/48 dev ens3
+ip link set dev ens3 up
 check_command "Добавление IPv6 адреса"
 
 # Настройка маршрутизации
 log_message "Настройка маршрутизации IPv6..."
-ip -6 route add default via 2a10:9680::1 dev ens3
-check_command "Добавление маршрута по умолчанию"
-
-ip -6 route add 2a10:9680:1::/48 dev ens3
-check_command "Добавление локального маршрута"
+ip -6 route add 2a10:9680::/48 dev ens3
+ip -6 route add default via 2a10:9680::1 dev ens3 metric 1
+check_command "Добавление маршрутов IPv6"
 
 # Настройка sysctl
 log_message "Настройка параметров ядра..."
@@ -143,6 +142,8 @@ net.ipv6.conf.all.forwarding=1
 net.ipv6.conf.default.forwarding=1
 net.ipv6.conf.all.proxy_ndp=1
 net.ipv6.conf.default.proxy_ndp=1
+net.ipv6.conf.all.accept_ra=2
+net.ipv6.conf.default.accept_ra=2
 EOL
 sysctl -p /etc/sysctl.d/99-ipv6.conf
 check_command "Настройка параметров ядра"
@@ -218,4 +219,3 @@ else
     log_message "Не удалось получить IPv6 адреса от прокси"
     exit 1
 fi
-
