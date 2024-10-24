@@ -15,6 +15,10 @@ cat <<EOL > /etc/squid/squid.conf
 # Базовые настройки
 http_port 3128
 
+# Принудительное использование IPv6
+dns_v4_first off
+dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
+
 # Аутентификация
 auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
 auth_param basic children 100
@@ -64,12 +68,23 @@ do
     echo "45.87.246.238:$port:$username:$password" >> /etc/squid/proxies.txt
 done
 
+# После генерации прокси добавить настройку маршрутизации IPv6:
+echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
+sysctl -p
+
 # Проверка конфигурации
 echo "Проверка конфигурации Squid..."
 squid -k parse
 
 if [ $? -ne 0 ]; then
     echo "Ошибка в конфигурации Squid!"
+    exit 1
+fi
+
+# Перед перезапуском squid добавить проверку IPv6:
+ip -6 route show
+if [ $? -ne 0 ]; then
+    echo "IPv6 маршрутизация не настроена!"
     exit 1
 fi
 
