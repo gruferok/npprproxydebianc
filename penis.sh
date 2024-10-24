@@ -45,7 +45,7 @@ acl localnet src fe80::/10   # RFC 4291 link-local (directly plugged) machines
 auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
 auth_param basic children 100
 auth_param basic realm Squid proxy-caching web server
-auth_param basic credentialsttl 2hours
+auth_param basic credentialsttl 2 hours
 auth_param basic casesensitive off
 
 # Контроль доступа
