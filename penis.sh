@@ -23,8 +23,8 @@ tcp_outgoing_address 2a10:9680:1::1
 # Форсирование IPv6
 client_dst_passthru on
 dns_defnames on
-dns_retransmit_interval 5
-dns_timeout 5
+dns_retransmit_interval 5 seconds
+dns_timeout 5 seconds
 
 # IPv6 ACL
 acl ipv6_traffic proto ipv6
