@@ -98,3 +98,43 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "Установка успешно завершена! Прокси сохранены в /etc/squid/proxies.txt"
+
+# Функция проверки прокси через IPv6
+check_proxy() {
+    local proxy_line=$1
+    local host=$2
+    local port=$3
+    local user=$4
+    local pass=$5
+    
+    # Проверяем соединение через curl с IPv6
+    result=$(curl -6 --proxy "$host:$port" --proxy-user "$user:$pass" -s https://api64.ipify.org?format=json)
+    
+    if [[ $result == *"ip"* ]]; then
+        ip=$(echo $result | grep -o '"ip":"[^"]*' | cut -d'"' -f4)
+        if [[ $ip == 2a10* ]]; then
+            echo "Прокси $host:$port работает через IPv6: $ip"
+            return 0
+        else
+            echo "Прокси $host:$port использует IPv4: $ip"
+            return 1
+        fi
+    else
+        echo "Прокси $host:$port не отвечает"
+        return 1
+    fi
+}
+
+echo "Проверка работоспособности прокси..."
+while IFS=: read -r host port user pass; do
+    check_proxy "$line" "$host" "$port" "$user" "$pass"
+done < /etc/squid/proxies.txt
+
+# Проверяем общий результат
+if [ $? -eq 0 ]; then
+    echo "Все прокси успешно настроены и работают через IPv6!"
+else
+    echo "Обнаружены проблемы с некоторыми прокси!"
+    exit 1
+fi
+
