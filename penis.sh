@@ -44,7 +44,6 @@ log_message "Создание конфигурационного файла дл
 cat <<EOL > /etc/squid/squid.conf
 # Базовые настройки
 http_port 3128
-dns_v4_first off
 
 # IPv6 настройки
 dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
@@ -55,11 +54,13 @@ client_dst_passthru on
 dns_defnames on
 dns_retransmit_interval 5 second
 dns_timeout 5 second
+dns_packet_max 4096
 
 # Кэш настройки
-ipcache_size 1024
+ipcache_size 4096
 ipcache_low 90
 ipcache_high 95
+fqdncache_size 4096
 
 # Базовые ACL
 acl localnet src all
@@ -87,11 +88,6 @@ request_header_access Via deny all
 request_header_access X-Forwarded-For deny all
 request_header_access From deny all
 visible_hostname unknown
-
-# IPv6 specific
-dns_packet_max 4096
-ipcache_size 4096
-fqdncache_size 4096
 
 # Debug
 debug_options ALL,1 28,9
