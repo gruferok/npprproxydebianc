@@ -30,16 +30,10 @@ ipcache_size 1024
 ipcache_low 90
 ipcache_high 95
 
-# Принудительное использование IPv6 для исходящих соединений
-tcp_outgoing_address ::/0
-prefer_direct on
-dns_v6_first on
-
 # IPv6 ACL
 acl ipv6_traffic proto ipv6
-acl localnet src 0.0.0.0/8 # RFC 1122 "This host on this network"
-acl localnet src fc00::/7    # RFC 4193 local private network range
-acl localnet src fe80::/10   # RFC 4291 link-local (directly plugged) machines
+prefer_direct on
+dns_v6_first on
 
 # Аутентификация
 auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
