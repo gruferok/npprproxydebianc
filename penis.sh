@@ -38,6 +38,14 @@ if ! ip link show "$INTERFACE" > /dev/null 2>&1; then
 fi
 log_info "Интерфейс $INTERFACE найден."
 
+# Удаление всех старых IPv6 адресов, попадающих в подсеть
+log_info "Удаляем старые IPv6 адреса в подсети $IPV6_SUBNET на интерфейсе $INTERFACE..."
+for IP in "${IPV6_ADDRESSES[@]}"; do
+    log_debug "Удаляем адрес $IP, если он уже настроен..."
+    ip -6 addr del "$IP/48" dev "$INTERFACE" 2>/dev/null
+done
+log_info "Старые IPv6 адреса удалены."
+
 # Настройка IPv6 адресов
 log_info "Настраиваем IPv6 адреса на интерфейсе $INTERFACE..."
 for IP in "${IPV6_ADDRESSES[@]}"; do
