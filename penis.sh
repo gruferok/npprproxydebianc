@@ -15,25 +15,26 @@ cat <<EOL > /etc/squid/squid.conf
 # Базовые настройки
 http_port 3128
 
-# Принудительное использование IPv6
+# IPv6 настройки
 dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
 tcp_outgoing_address 2a10:9680:1::1
 
-# Форсирование IPv6
+# DNS настройки
 client_dst_passthru on
 dns_defnames on
 dns_retransmit_interval 5 second
 dns_timeout 5 second
 
-# Дополнительные настройки IPv6
+# Кэш настройки
 ipcache_size 1024
 ipcache_low 90
 ipcache_high 95
 
-# IPv6 ACL
-acl ipv6_traffic proto ipv6
+# Базовые ACL
+acl localnet src 0.0.0.0/8
+acl localnet src fc00::/7
+acl localnet src fe80::/10
 prefer_direct on
-dns_v6_first on
 
 # Аутентификация
 auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
@@ -47,9 +48,8 @@ acl authenticated proxy_auth REQUIRED
 http_access allow authenticated
 http_access deny all
 
-# Оптимизация производительности
+# Оптимизация
 forwarded_for delete
-via off
 EOL
 
 # Генерация прокси
