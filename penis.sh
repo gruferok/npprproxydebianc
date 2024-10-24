@@ -22,8 +22,8 @@ tcp_outgoing_address 2a10:9680:1::1
 # Форсирование IPv6
 client_dst_passthru on
 dns_defnames on
-dns_retransmit_interval 5seconds
-dns_timeout 5seconds
+dns_retransmit_interval 5
+dns_timeout 5
 
 # Дополнительные настройки IPv6
 ipcache_size 1024
@@ -98,8 +98,8 @@ echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
 echo "net.ipv6.conf.default.forwarding=1" >> /etc/sysctl.conf
 sysctl -p
 
-# Добавление IPv6 адреса
-ip -6 addr add 2a10:9680:1::1/64 dev eth0
+# Добавление IPv6 адреса на интерфейс ens3
+ip -6 addr add 2a10:9680:1::1/64 dev ens3
 
 # Проверка конфигурации
 echo "Проверка конфигурации Squid..."
