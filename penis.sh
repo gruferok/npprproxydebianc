@@ -92,13 +92,15 @@ echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
 echo "net.ipv6.conf.default.forwarding=1" >> /etc/sysctl.conf
 sysctl -p
 
-# Настройка сетевого интерфейса для IPv6
-ip -6 addr add 2a10:9680:1::1/64 dev ens3
+# Назначение IPv6-адреса на интерфейс с правильным префиксом /48
+ip -6 addr add 2a10:9680:1::1/48 dev ens3
+
+# Настройка маршрутизации IPv6
 ip -6 route del default
 ip -6 route add default via 2a10:9680::1 dev ens3
-ip -6 route add 2a10:9680:1::/64 dev ens3
+ip -6 route add 2a10:9680:1::/48 dev ens3
 
-# Проверка IPv6 маршрутизации
+# Проверка маршрутизации IPv6
 if ! ip -6 route show | grep -q "default via 2a10:9680::1"; then
     echo "Настройка маршрутизации IPv6..."
     ip -6 route add default via 2a10:9680::1 dev ens3
