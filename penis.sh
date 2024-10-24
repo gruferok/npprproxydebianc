@@ -38,25 +38,26 @@ if ! ip link show "$INTERFACE" > /dev/null 2>&1; then
 fi
 log_info "Интерфейс $INTERFACE найден."
 
-# Удаление старых IPv6 адресов
+# Удаление старых IPv6 адресов по одному
 log_info "Удаляем старые IPv6 адреса в подсети $SUBNET на интерфейсе $INTERFACE..."
-log_debug "Пытаемся удалить все IPv6 адреса в подсети $SUBNET..."
-ip -6 addr flush dev "$INTERFACE" scope global 2>/dev/null
-if [ $? -ne 0 ]; then
-    log_error "Не удалось очистить IPv6 адреса на интерфейсе $INTERFACE."
-else
-    log_info "Старые IPv6 адреса успешно удалены."
-fi
-
-# Проверка, действительно ли адреса удалены
-log_debug "Проверка отсутствия старых IPv6 адресов на интерфейсе $INTERFACE..."
 for IP in "${IPV6_ADDRESSES[@]}"; do
+    log_debug "Проверяем наличие $IP на интерфейсе..."
     if ip -6 addr show dev "$INTERFACE" | grep -q "$IP"; then
-        log_error "Адрес $IP всё ещё присутствует на интерфейсе. Не удалось удалить."
+        log_debug "Удаляем адрес $IP..."
+        if ! ip -6 addr del "$IP/128" dev "$INTERFACE" 2>/dev/null; then
+            log_error "Ошибка при удалении адреса $IP."
+        else
+            log_info "Адрес $IP успешно удалён."
+        fi
     else
-        log_info "Адрес $IP успешно удалён."
+        log_info "Адрес $IP не найден на интерфейсе."
     fi
 done
+
+# Дополнительная проверка системных ошибок
+log_debug "Проверяем системные логи на предмет ошибок..."
+dmesg | tail -n 20
+journalctl -xe | tail -n 20
 
 # Настройка новых IPv6 адресов
 log_info "Настраиваем IPv6 адреса на интерфейсе $INTERFACE..."
