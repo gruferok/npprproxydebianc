@@ -22,8 +22,8 @@ tcp_outgoing_address 2a10:9680:1::1
 # Форсирование IPv6
 client_dst_passthru on
 dns_defnames on
-dns_retransmit_interval 5
-dns_timeout 5
+dns_retransmit_interval 5 second
+dns_timeout 5 second
 
 # Дополнительные настройки IPv6
 ipcache_size 1024
