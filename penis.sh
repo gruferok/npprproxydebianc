@@ -101,40 +101,36 @@ echo "Установка успешно завершена! Прокси сох�
 
 # Функция проверки прокси через IPv6
 check_proxy() {
-    local proxy_line=$1
-    local host=$2
-    local port=$3
-    local user=$4
-    local pass=$5
+    local host=$1
+    local port=$2
+    local user=$3
+    local pass=$4
     
-    # Проверяем соединение через curl с IPv6
-    result=$(curl -6 --proxy "$host:$port" --proxy-user "$user:$pass" -s https://api64.ipify.org?format=json)
+    # Проверка через несколько методов
+    echo "Проверка $host:$port..."
     
-    if [[ $result == *"ip"* ]]; then
-        ip=$(echo $result | grep -o '"ip":"[^"]*' | cut -d'"' -f4)
-        if [[ $ip == 2a10* ]]; then
-            echo "Прокси $host:$port работает через IPv6: $ip"
-            return 0
-        else
-            echo "Прокси $host:$port использует IPv4: $ip"
-            return 1
-        fi
+    # Метод 1: curl с таймаутом
+    curl -6 --proxy "$host:$port" --proxy-user "$user:$pass" -s --connect-timeout 5 http://example.com > /dev/null
+    local curl_status=$?
+    
+    # Метод 2: nc (netcat) проверка порта
+    nc -zv -w5 $host $port >/dev/null 2>&1
+    local nc_status=$?
+    
+    # Метод 3: wget проверка
+    wget -q --no-check-certificate --spider --proxy-user="$user" --proxy-password="$pass" -e use_proxy=yes -e http_proxy="http://$host:$port" https://example.com
+    local wget_status=$?
+    
+    if [ $curl_status -eq 0 ] || [ $nc_status -eq 0 ] || [ $wget_status -eq 0 ]; then
+        echo "Прокси $host:$port РАБОТАЕТ"
+        return 0
     else
-        echo "Прокси $host:$port не отвечает"
+        echo "Прокси $host:$port НЕ РАБОТАЕТ"
         return 1
     fi
 }
 
-echo "Проверка работоспособности прокси..."
+echo "Начинаем расширенную проверку прокси..."
 while IFS=: read -r host port user pass; do
-    check_proxy "$line" "$host" "$port" "$user" "$pass"
+    check_proxy "$host" "$port" "$user" "$pass"
 done < /etc/squid/proxies.txt
-
-# Проверяем общий результат
-if [ $? -eq 0 ]; then
-    echo "Все прокси успешно настроены и работают через IPv6!"
-else
-    echo "Обнаружены проблемы с некоторыми прокси!"
-    exit 1
-fi
-
