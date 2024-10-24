@@ -1,172 +1,111 @@
 #!/bin/bash
 
-# Установка Squid
-echo "Установка Squid..."
-apt-get update && apt-get install -y squid apache2-utils
+# Переменные
+INTERFACE="ens3"
+IPV6_SUBNET="2a10:9680:1::/48"
+IPV6_GATEWAY="2a10:9680::1"
+IPV6_ADDRESSES=(
+  "2a10:9680:1::1"
+  "2a10:9680:1::2"
+  "2a10:9680:1::3"
+  "2a10:9680:1::4"
+  "2a10:9680:1::5"
+  "2a10:9680:1::6"
+  "2a10:9680:1::7"
+  "2a10:9680:1::8"
+  "2a10:9680:1::9"
+  "2a10:9680:1::10"
+)
 
-if [ $? -ne 0 ]; then
-    echo "Ошибка при установке Squid!"
-    exit 1
-fi
-
-# Создание базового конфигурационного файла
-echo "Создание конфигурационного файла для Squid..."
-cat <<EOL > /etc/squid/squid.conf
-# Базовые настройки
-http_port 3128
-
-# IPv6 настройки
-dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
-tcp_outgoing_address 2a10:9680:1::1
-
-# DNS настройки
-client_dst_passthru on
-dns_defnames on
-dns_retransmit_interval 5 second
-dns_timeout 5 second
-
-# Кэш настройки
-ipcache_size 1024
-ipcache_low 90
-ipcache_high 95
-
-# Базовые ACL
-acl localnet src 0.0.0.0/8
-acl localnet src fc00::/7
-acl localnet src fe80::/10
-prefer_direct on
-
-# Аутентификация
-auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
-auth_param basic children 100
-auth_param basic realm Squid proxy-caching web server
-auth_param basic credentialsttl 2 hours
-auth_param basic casesensitive off
-
-# Контроль доступа
-acl authenticated proxy_auth REQUIRED
-http_access allow authenticated
-http_access deny all
-
-# Оптимизация
-forwarded_for delete
-EOL
-
-# Генерация прокси
-echo "Генерация прокси..."
-touch /etc/squid/passwd
-touch /etc/squid/proxies.txt
-
-for i in {1..10}
-do
-    username="user$i"
-    password=$(openssl rand -base64 12)
-    
-    # Создание пользователей
-    if [ $i -eq 1 ]; then
-        htpasswd -c -b /etc/squid/passwd $username $password
-    else
-        htpasswd -b /etc/squid/passwd $username $password
-    fi
-    
-    if [ $? -ne 0 ]; then
-        echo "Ошибка при создании пользователя $username!"
-        exit 1
-    fi
-
-    # Настройка порта и ACL
-    port=$((3129 + $i))
-    echo "http_port 45.87.246.238:$port name=proxy$i" >> /etc/squid/squid.conf
-    echo "acl proxy${i}_users myportname proxy$i" >> /etc/squid/squid.conf
-    echo "tcp_outgoing_address 2a10:9680:1::$i proxy${i}_users" >> /etc/squid/squid.conf
-    
-    # Сохранение данных прокси
-    echo "45.87.246.238:$port:$username:$password" >> /etc/squid/proxies.txt
-done
-
-# Настройка IPv6
-echo "Настройка IPv6..."
-sysctl -w net.ipv6.conf.all.forwarding=1
-sysctl -w net.ipv6.conf.default.forwarding=1
-echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
-echo "net.ipv6.conf.default.forwarding=1" >> /etc/sysctl.conf
-sysctl -p
-
-# Назначение IPv6-адреса на интерфейс с правильным префиксом /48
-ip -6 addr add 2a10:9680:1::1/48 dev ens3
-
-# Настройка маршрутизации IPv6
-ip -6 route del default
-ip -6 route add default via 2a10:9680::1 dev ens3
-ip -6 route add 2a10:9680:1::/48 dev ens3
-
-# Проверка маршрутизации IPv6
-if ! ip -6 route show | grep -q "default via 2a10:9680::1"; then
-    echo "Настройка маршрутизации IPv6..."
-    ip -6 route add default via 2a10:9680::1 dev ens3
-fi
-
-# Проверка конфигурации
-echo "Проверка конфигурации Squid..."
-squid -k parse
-if [ $? -ne 0 ]; then
-    echo "Ошибка в конфигурации Squid!"
-    exit 1
-fi
-
-# Перезапуск сервиса
-echo "Перезапуск Squid..."
-systemctl restart squid
-if [ $? -ne 0 ]; then
-    echo "Ошибка при перезапуске Squid!"
-    exit 1
-fi
-
-echo "Установка успешно завершена! Прокси сохранены в /etc/squid/proxies.txt"
-
-# Функция проверки прокси
-check_proxy() {
-    local host=$1
-    local port=$2
-    local user=$3
-    local pass=$4
-    
-    echo "Проверка $host:$port..."
-    
-    # Проверка с принудительным IPv6
-    local external_ip=$(curl -6 --proxy "$host:$port" --proxy-user "$user:$pass" -s -m 10 --retry 3 --retry-delay 2 -H "Accept: application/json" https://api64.ipify.org?format=json)
-    
-    if [[ $external_ip == *"2a10"* ]]; then
-        ip=$(echo $external_ip | grep -o '"ip":"[^"]*' | cut -d'"' -f4)
-        echo "Прокси $host:$port РАБОТАЕТ"
-        echo "Внешний IPv6: $ip"
-        echo "$ip" >> /tmp/proxy_ips.txt
-        return 0
-    else
-        echo "Прокси $host:$port использует IPv4 или неверный IPv6"
-        return 1
-    fi
+# Функция для вывода отладочных сообщений
+log_debug() {
+    echo "[DEBUG] $1"
 }
 
-echo "Начинаем проверку прокси с определением внешних IPv6..."
-rm -f /tmp/proxy_ips.txt
-
-while IFS=: read -r host port user pass; do
-    check_proxy "$host" "$port" "$user" "$pass"
-done < /etc/squid/proxies.txt
-
-# Проверка уникальности IPv6
-echo "Проверка уникальности IPv6 адресов..."
-if [ -f /tmp/proxy_ips.txt ]; then
-    DUPLICATE_IPS=$(sort /tmp/proxy_ips.txt | uniq -d)
-    if [ -n "$DUPLICATE_IPS" ]; then
-        echo "Найдены повторяющиеся IPv6 адреса:"
-        echo "$DUPLICATE_IPS"
-        exit 1
-    else
-        echo "Все прокси используют уникальные IPv6 адреса"
-    fi
-else
-    echo "Не удалось получить IPv6 адреса от прокси"
+log_error() {
+    echo "[ERROR] $1"
     exit 1
+}
+
+log_info() {
+    echo "[INFO] $1"
+}
+
+# Проверка доступности интерфейса
+log_info "Проверяем наличие интерфейса $INTERFACE..."
+if ! ip link show "$INTERFACE" > /dev/null 2>&1; then
+    log_error "Интерфейс $INTERFACE не найден."
 fi
+log_info "Интерфейс $INTERFACE найден."
+
+# Настройка IPv6 адресов
+log_info "Настраиваем IPv6 адреса на интерфейсе $INTERFACE..."
+for IP in "${IPV6_ADDRESSES[@]}"; do
+    log_debug "Добавляем адрес $IP..."
+    if ! ip -6 addr add "$IP/48" dev "$INTERFACE" 2>/dev/null; then
+        log_error "Ошибка при добавлении $IP. Возможно, он уже добавлен."
+    fi
+done
+log_info "IPv6 адреса успешно добавлены."
+
+# Удаление существующего маршрута, если он есть
+log_info "Удаляем существующий маршрут, если он есть..."
+ip -6 route del default via "$IPV6_GATEWAY" dev "$INTERFACE" 2>/dev/null
+log_info "Удаление маршрута завершено (если маршрут существовал)."
+
+# Добавление нового маршрута
+log_info "Добавляем новый маршрут по умолчанию через $IPV6_GATEWAY..."
+if ! ip -6 route add default via "$IPV6_GATEWAY" dev "$INTERFACE"; then
+    log_error "Не удалось добавить маршрут по умолчанию."
+fi
+log_info "Маршрут по умолчанию успешно добавлен."
+
+# Проверка доступности IPv6 интернета
+log_info "Проверяем сетевое подключение по IPv6..."
+if ! ping6 -c 3 google.com > /dev/null 2>&1; then
+    log_error "Не удалось пинговать google.com по IPv6. Проверьте подключение."
+fi
+log_info "Подключение по IPv6 успешно проверено."
+
+# Проверка конфигурации Squid
+log_info "Проверка конфигурации Squid..."
+squid -k parse > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+    log_error "Конфигурация Squid содержит ошибки."
+fi
+log_info "Конфигурация Squid успешно проверена."
+
+# Перезапуск Squid
+log_info "Перезапускаем Squid..."
+if ! systemctl restart squid; then
+    log_error "Не удалось перезапустить Squid."
+fi
+log_info "Squid успешно перезапущен."
+
+# Проверка состояния Squid
+log_info "Проверка статуса Squid..."
+if ! systemctl is-active --quiet squid; then
+    log_error "Squid не запущен."
+fi
+log_info "Squid успешно работает."
+
+# Проверка прокси
+log_info "Начинаем проверку прокси-серверов..."
+
+for ((i=0; i<${#IPV6_ADDRESSES[@]}; i++)); do
+    PROXY_PORT=$((3130 + i))
+    log_debug "Проверка прокси 45.87.246.238:$PROXY_PORT..."
+    
+    # Проверка подключения по IPv6 через конкретный прокси
+    curl --proxy "http://[${IPV6_ADDRESSES[$i]}]:$PROXY_PORT" -6 http://ifconfig.co > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        log_error "Прокси 45.87.246.238:$PROXY_PORT использует IPv4 или неверный IPv6."
+    else
+        log_info "Прокси 45.87.246.238:$PROXY_PORT успешно проверен и использует IPv6."
+    fi
+done
+
+log_info "Все прокси успешно проверены."
+
+# Конец скрипта
+log_info "Скрипт завершен успешно."
