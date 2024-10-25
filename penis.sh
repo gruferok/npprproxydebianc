@@ -46,8 +46,6 @@ cat <<EOL > /etc/squid/squid.conf
 http_port 3128
 
 # IPv6 настройки
-dns_v6_first on
-tcp_outgoing_address ::0
 dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
 tcp_outgoing_address 2a10:9680:1::1
 
