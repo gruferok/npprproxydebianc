@@ -34,47 +34,32 @@ cat <<EOL > /etc/squid/squid.conf
 max_filedesc 500000
 pid_filename /var/run/squid.pid
 
-# Отключение логов для производительности
+# Отключение логов
 access_log none
 cache_store_log none
 cache deny all
+
+# Защита и приватность
+forwarded_for delete
+via off
+follow_x_forwarded_for allow localhost
+follow_x_forwarded_for deny all
 
 # Настройки IPv6
 dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
 
 # ACL для IPv6
-acl ipv6_traffic dst ipv6
-http_access allow ipv6_traffic
+acl to_ipv6 dst ipv6
+http_access deny all !to_ipv6
 
-# Базовый порт
-http_port 3128
-
-# Защита и оптимизация заголовков
-via off
-forwarded_for delete
-follow_x_forwarded_for deny all
-request_header_access X-Forwarded-For deny all
-request_header_access Authorization allow all
-request_header_access Proxy-Authorization allow all
-request_header_access Cache-Control allow all
-request_header_access Content-Length allow all
-request_header_access Content-Type allow all
-request_header_access Date allow all
-request_header_access Host allow all
-request_header_access If-Modified-Since allow all
-request_header_access Pragma allow all
-request_header_access Accept allow all
-request_header_access Accept-Charset allow all
-request_header_access Accept-Encoding allow all
-request_header_access Accept-Language allow all
-request_header_access Connection allow all
-request_header_access All deny all
-
-# Базовые ACL
+# Базовые порты
 acl SSL_ports port 443
 acl Safe_ports port 80
 acl Safe_ports port 443
+acl Safe_ports port 1025-65535
 acl CONNECT method CONNECT
+
+# Правила доступа
 http_access deny !Safe_ports
 http_access deny CONNECT !SSL_ports
 
@@ -82,12 +67,13 @@ http_access deny CONNECT !SSL_ports
 auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
 auth_param basic children 100
 auth_param basic realm Proxy
-auth_param basic credentialsttl 1 minute
+auth_param basic credentialsttl 2 minutes
 auth_param basic casesensitive off
 
 # Контроль доступа
 acl authenticated proxy_auth REQUIRED
 http_access allow authenticated
+http_access deny all
 
 # Оптимизация
 visible_hostname V6proxies-Net
@@ -119,7 +105,7 @@ do
     check_command "Создание пользователя $username"
 
     # Настройка порта и ACL
-    port=$((3129 + $i))
+    port=$((32000 + $i))
     cat <<EOL >> /etc/squid/squid.conf
 http_port 45.87.246.238:$port
 acl p${port} localport $port
@@ -187,11 +173,9 @@ log_message "Начинаем проверку прокси..."
 while IFS=: read -r host port user pass; do
     log_message "Тестирование прокси $host:$port"
     
-    # Проверка доступности порта
     if nc -z -w5 $host $port; then
         log_message "Порт $port открыт"
         
-        # Проверка IPv6 через прокси
         response=$(curl -6 --proxy-insecure --proxy "$host:$port" --proxy-user "$user:$pass" -s "https://api6.ipify.org" --connect-timeout 10)
         
         if [[ $response == *"2a10"* ]]; then
@@ -206,10 +190,7 @@ while IFS=: read -r host port user pass; do
         echo "$host:$port - ОШИБКА (Порт закрыт)" >> /root/failed_proxies.txt
     fi
     
-    # Пауза между проверками
     sleep 1
 done < /etc/squid/proxies.txt
 
-# Вывод итогов
 log_message "Проверка завершена"
-log_message "Результаты сохранены в /root/working_proxies.txt и /root/failed_proxies.txt"
