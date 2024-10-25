@@ -34,10 +34,10 @@ cat <<EOL > /etc/squid/squid.conf
 max_filedesc 500000
 pid_filename /var/run/squid.pid
 
-# Принудительное IPv6
-dns_v4_first off
-tcp_outgoing_address_precedence ipv6
-prefer_direct off
+# Настройки IPv6
+dns_v6_first on
+ipcache_low 90
+ipcache_high 95
 
 # Отключение логов
 access_log none
@@ -50,7 +50,7 @@ via off
 follow_x_forwarded_for allow localhost
 follow_x_forwarded_for deny all
 
-# Настройки IPv6
+# DNS серверы
 dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
 
 # ACL для IPv6
@@ -180,7 +180,7 @@ i=1
 while IFS=: read -r host port user pass; do
     log_message "Тестирование прокси $host:$port"
     
-    if nc -z -w5 $host $port; do
+    if nc -z -w5 "${host//\[/}" "${port//\]/}"; then
         log_message "Порт $port открыт"
         
         response=$(curl -6 --proxy-insecure --proxy "$host:$port" --proxy-user "$user:$pass" -s "https://api6.ipify.org" --connect-timeout 10 --interface 2a10:9680:1::$i)
