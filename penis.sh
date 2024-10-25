@@ -52,7 +52,6 @@ dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
 tcp_outgoing_address 2a10:9680:1::1
 
 prefer_direct off
-dns_v4_first off
 
 # DNS настройки
 client_dst_passthru on
@@ -228,35 +227,16 @@ check_proxy() {
     local external_ip=$(curl -6 --proxy-insecure --proxy "$host:$port" --proxy-user "$user:$pass" -s -m 10 --retry 3 --retry-delay 2 "https://api6.ipify.org")
     
     if [[ $external_ip == *"2a10"* ]]; then
-        ip=$external_ip
-        log_message "Прокси $host:$port РАБОТАЕТ (IPv6: $ip)"
-        echo "$ip" >> /tmp/proxy_ips.txt
-        return 0
+        log_message "Прокси $host:$port работает с IPv6"
     else
-        log_message "Прокси $host:$port использует IPv4 или неверный IPv6"
-        return 1
+        log_message "ОШИБКА: Прокси $host:$port не возвращает правильный IPv6 адрес"
     fi
 }
 
-log_message "Начинаем проверку прокси с определением внешних IPv6..."
-rm -f /tmp/proxy_ips.txt
-
+# Проверка всех прокси
+log_message "Проверка всех прокси..."
 while IFS=: read -r host port user pass; do
-    check_proxy "$host" "$port" "$user" "$pass"
+    check_proxy $host $port $user $pass
 done < /etc/squid/proxies.txt
 
-# Проверка уникальности IPv6
-log_message "Проверка уникальности IPv6 адресов..."
-if [ -f /tmp/proxy_ips.txt ]; then
-    DUPLICATE_IPS=$(sort /tmp/proxy_ips.txt | uniq -d)
-    if [ -n "$DUPLICATE_IPS" ]; then
-        log_message "Найдены повторяющиеся IPv6 адреса:"
-        echo "$DUPLICATE_IPS"
-        exit 1
-    else
-        log_message "Все прокси используют уникальные IPv6 адреса"
-    fi
-else
-    log_message "Не удалось получить IPv6 адреса от прокси"
-    exit 1
-fi
+log_message "Завершено!"
