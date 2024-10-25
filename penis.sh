@@ -30,25 +30,13 @@ check_command "Установка пакетов"
 # Создание базового конфигурационного файла
 log_message "Создание конфигурационного файла для Squid..."
 cat <<EOL > /etc/squid/squid.conf
-# Базовые настройки производительности
-max_filedesc 500000
+# Базовые настройки
 pid_filename /var/run/squid.pid
-
-# Настройки IPv6
-dns_v6_first on
-ipcache_low 90
-ipcache_high 95
 
 # Отключение логов
 access_log none
 cache_store_log none
 cache deny all
-
-# Защита и приватность
-forwarded_for delete
-via off
-follow_x_forwarded_for allow localhost
-follow_x_forwarded_for deny all
 
 # DNS серверы
 dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
@@ -56,13 +44,11 @@ dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
 # ACL для IPv6
 acl to_ipv6 dst ipv6
 http_access allow to_ipv6
-http_access deny !to_ipv6
 
 # Базовые порты
 acl SSL_ports port 443
 acl Safe_ports port 80
 acl Safe_ports port 443
-acl Safe_ports port 1025-65535
 acl CONNECT method CONNECT
 
 # Правила доступа
@@ -71,23 +57,13 @@ http_access deny CONNECT !SSL_ports
 
 # Аутентификация
 auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
-auth_param basic children 100
 auth_param basic realm Proxy
-auth_param basic credentialsttl 2 minutes
-auth_param basic casesensitive off
-
-# Контроль доступа
 acl authenticated proxy_auth REQUIRED
 http_access allow authenticated
 http_access deny all
 
 # Оптимизация
 visible_hostname V6proxies-Net
-unique_hostname V6proxies-Net
-
-# Debug
-debug_options ALL,1
-cache_log /var/log/squid/cache.log
 EOL
 
 check_command "Создание базовой конфигурации Squid"
