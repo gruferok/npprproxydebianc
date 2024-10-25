@@ -21,55 +21,60 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Проверка наличия IPv6
-if ! ip -6 addr show > /dev/null 2>&1; then
-    log_message "IPv6 не поддерживается на этой системе"
-    exit 1
-fi
-
 # Установка необходимых пакетов
 log_message "Установка необходимых пакетов..."
 apt-get update
 apt-get install -y squid apache2-utils iputils-ping net-tools
 check_command "Установка пакетов"
 
-# Проверка интерфейса
-if ! ip link show ens3 > /dev/null 2>&1; then
-    log_message "Интерфейс ens3 не найден"
-    exit 1
-fi
-
 # Создание базового конфигурационного файла
 log_message "Создание конфигурационного файла для Squid..."
 cat <<EOL > /etc/squid/squid.conf
-# Базовые настройки
-http_port 3128
+# Базовые настройки производительности
+max_filedesc 500000
+pid_filename /var/run/squid.pid
 
-# IPv6 настройки
+# Отключение логов для производительности
+access_log none
+cache_store_log none
+cache deny all
+
+# Настройки IPv6
+dns_v4_first off
 dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
 
 # Принудительное использование IPv6
-tcp_outgoing_address 2a10:9680:1::1
+acl to_ipv6 dst ipv6
+http_access deny all !to_ipv6
 
-prefer_direct off
+# Базовый порт
+http_port 3128
 
-# DNS настройки
-client_dst_passthru on
-dns_defnames on
-dns_retransmit_interval 5 second
-dns_timeout 5 second
-dns_packet_max 4096
-
-# Кэш настройки
-ipcache_size 4096
-ipcache_low 90
-ipcache_high 95
-fqdncache_size 4096
+# Защита и оптимизация заголовков
+via off
+forwarded_for delete
+follow_x_forwarded_for deny all
+request_header_access X-Forwarded-For deny all
+request_header_access Authorization allow all
+request_header_access Proxy-Authorization allow all
+request_header_access Cache-Control allow all
+request_header_access Content-Length allow all
+request_header_access Content-Type allow all
+request_header_access Date allow all
+request_header_access Host allow all
+request_header_access If-Modified-Since allow all
+request_header_access Pragma allow all
+request_header_access Accept allow all
+request_header_access Accept-Charset allow all
+request_header_access Accept-Encoding allow all
+request_header_access Accept-Language allow all
+request_header_access Connection allow all
+request_header_access All deny all
 
 # Базовые ACL
-acl localnet src all
 acl SSL_ports port 443
-acl Safe_ports port 80 443
+acl Safe_ports port 80
+acl Safe_ports port 443
 acl CONNECT method CONNECT
 http_access deny !Safe_ports
 http_access deny CONNECT !SSL_ports
@@ -77,8 +82,8 @@ http_access deny CONNECT !SSL_ports
 # Аутентификация
 auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/passwd
 auth_param basic children 100
-auth_param basic realm Squid proxy-caching web server
-auth_param basic credentialsttl 2 hours
+auth_param basic realm Proxy
+auth_param basic credentialsttl 1 minute
 auth_param basic casesensitive off
 
 # Контроль доступа
@@ -87,14 +92,11 @@ http_access allow authenticated
 http_access deny all
 
 # Оптимизация
-forwarded_for delete
-request_header_access Via deny all
-request_header_access X-Forwarded-For deny all
-request_header_access From deny all
-visible_hostname unknown
+visible_hostname V6proxies-Net
+unique_hostname V6proxies-Net
 
 # Debug
-debug_options ALL,1 28,9
+debug_options ALL,1
 cache_log /var/log/squid/cache.log
 EOL
 
@@ -120,9 +122,11 @@ do
 
     # Настройка порта и ACL
     port=$((3129 + $i))
-    echo "http_port 45.87.246.238:$port name=proxy$i" >> /etc/squid/squid.conf
-    echo "acl proxy${i}_users myportname proxy$i" >> /etc/squid/squid.conf
-    echo "tcp_outgoing_address 2a10:9680:1::$i proxy${i}_users" >> /etc/squid/squid.conf
+    cat <<EOL >> /etc/squid/squid.conf
+http_port 45.87.246.238:$port
+acl p${port} localport $port
+tcp_outgoing_address 2a10:9680:1::$i p${port}
+EOL
     check_command "Настройка прокси $i"
     
     # Сохранение данных прокси
@@ -131,35 +135,28 @@ done
 
 # Настройка IPv6
 log_message "Настройка IPv6..."
-
-# Очистка старых настроек IPv6
-log_message "Очистка старых настроек IPv6..."
 ip -6 addr flush dev ens3
 ip -6 route flush dev ens3
 check_command "Очистка IPv6 настроек"
 
-# Базовая настройка интерфейса
-log_message "Настройка сетевого интерфейса..."
+# Настройка интерфейса
 ip link set dev ens3 up
 ip -6 addr add 2a10:9680:1::1/48 dev ens3
 ip -6 addr add fe80::1/64 dev ens3 scope link
 
-# Добавление дополнительных IPv6 адресов
 for i in {2..10}; do
     ip -6 addr add 2a10:9680:1::$i/48 dev ens3
 done
-
 check_command "Настройка адресов интерфейса"
 
-# Настройка маршрутизации
-log_message "Настройка маршрутизации IPv6..."
+# Маршрутизация
 ip -6 route add 2a10:9680::/48 dev ens3
 ip -6 route add default via 2a10:9680::1 dev ens3 metric 1
 ip -6 route add 2001:4860:4860::8888 via 2a10:9680::1
 ip -6 route add 2001:4860:4860::8844 via 2a10:9680::1
-check_command "Добавление маршрутов IPv6"
+check_command "Настройка маршрутизации"
 
-# Расширенные настройки sysctl
+# Настройки sysctl
 cat > /etc/sysctl.d/99-ipv6.conf <<EOL
 net.ipv6.conf.all.forwarding=1
 net.ipv6.conf.default.forwarding=1
@@ -179,64 +176,16 @@ EOL
 sysctl -p /etc/sysctl.d/99-ipv6.conf
 check_command "Настройка параметров ядра"
 
-# Проверка IPv6 конфигурации
-log_message "Проверка IPv6 конфигурации..."
-ip -6 addr show
-ip -6 route show
-check_command "Проверка IPv6 конфигурации"
-
-# Добавляем паузу для стабилизации сети
-sleep 3
-
-# Проверка IPv6 связности с подробным выводом
-log_message "Проверка IPv6 связности..."
-ping6 -c 3 -I ens3 2001:4860:4860::8888
-check_command "Проверка связности с Google DNS"
-
-# Проверка конфигурации Squid
-log_message "Проверка конфигурации Squid..."
-squid -k parse
-check_command "Проверка конфигурации"
-
-# Перезапуск сервиса
-log_message "Перезапуск Squid..."
+# Перезапуск и проверка
 systemctl restart squid
-check_command "Перезапуск службы"
-
-# Ожидание запуска службы
 sleep 5
-
-# Проверка статуса службы
 systemctl is-active --quiet squid
-check_command "Проверка статуса службы"
+check_command "Запуск Squid"
 
-# Функция проверки прокси
-check_proxy() {
-    local host=$1
-    local port=$2
-    local user=$3
-    local pass=$4
-    
-    log_message "Проверка $host:$port..."
-    
-    # Проверка доступности порта
-    nc -zv -w5 $host $port > /dev/null 2>&1
-    check_command "Проверка доступности порта $port"
-    
-    # Проверка с принудительным IPv6
-    local external_ip=$(curl -6 --proxy-insecure --proxy "$host:$port" --proxy-user "$user:$pass" -s -m 10 --retry 3 --retry-delay 2 "https://api6.ipify.org")
-    
-    if [[ $external_ip == *"2a10"* ]]; then
-        log_message "Прокси $host:$port работает с IPv6"
-    else
-        log_message "ОШИБКА: Прокси $host:$port не возвращает правильный IPv6 адрес"
-    fi
-}
-
-# Проверка всех прокси
-log_message "Проверка всех прокси..."
+# Проверка прокси
+log_message "Проверка прокси..."
 while IFS=: read -r host port user pass; do
-    check_proxy $host $port $user $pass
+    curl -6 --proxy "$host:$port" --proxy-user "$user:$pass" -s "https://api6.ipify.org"
 done < /etc/squid/proxies.txt
 
-log_message "Завершено!"
+log_message "Настройка завершена"
