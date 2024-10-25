@@ -34,6 +34,11 @@ cat <<EOL > /etc/squid/squid.conf
 max_filedesc 500000
 pid_filename /var/run/squid.pid
 
+# Принудительное IPv6
+dns_v4_first off
+tcp_outgoing_address_precedence ipv6
+prefer_direct off
+
 # Отключение логов
 access_log none
 cache_store_log none
@@ -50,7 +55,8 @@ dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
 
 # ACL для IPv6
 acl to_ipv6 dst ipv6
-http_access deny all !to_ipv6
+http_access allow to_ipv6
+http_access deny !to_ipv6
 
 # Базовые порты
 acl SSL_ports port 443
@@ -107,14 +113,14 @@ do
     # Настройка порта и ACL
     port=$((32000 + $i))
     cat <<EOL >> /etc/squid/squid.conf
-http_port 45.87.246.238:$port
+http_port [2a10:9680:1::$i]:$port
 acl p${port} localport $port
 tcp_outgoing_address 2a10:9680:1::$i p${port}
 EOL
     check_command "Настройка прокси $i"
     
     # Сохранение данных прокси
-    echo "45.87.246.238:$port:$username:$password" >> /etc/squid/proxies.txt
+    echo "[2a10:9680:1::$i]:$port:$username:$password" >> /etc/squid/proxies.txt
 done
 
 # Настройка IPv6
@@ -170,13 +176,14 @@ check_command "Запуск Squid"
 # Проверка прокси
 log_message "Начинаем проверку прокси..."
 
+i=1
 while IFS=: read -r host port user pass; do
     log_message "Тестирование прокси $host:$port"
     
-    if nc -z -w5 $host $port; then
+    if nc -z -w5 $host $port; do
         log_message "Порт $port открыт"
         
-        response=$(curl -6 --proxy-insecure --proxy "$host:$port" --proxy-user "$user:$pass" -s "https://api6.ipify.org" --connect-timeout 10)
+        response=$(curl -6 --proxy-insecure --proxy "$host:$port" --proxy-user "$user:$pass" -s "https://api6.ipify.org" --connect-timeout 10 --interface 2a10:9680:1::$i)
         
         if [[ $response == *"2a10"* ]]; then
             log_message "Прокси $host:$port РАБОТАЕТ (IPv6: $response)"
@@ -190,6 +197,7 @@ while IFS=: read -r host port user pass; do
         echo "$host:$port - ОШИБКА (Порт закрыт)" >> /root/failed_proxies.txt
     fi
     
+    i=$((i+1))
     sleep 1
 done < /etc/squid/proxies.txt
 
