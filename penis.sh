@@ -183,9 +183,35 @@ systemctl is-active --quiet squid
 check_command "Запуск Squid"
 
 # Проверка прокси
-log_message "Проверка прокси..."
+log_message "Начинаем проверку прокси..."
+
 while IFS=: read -r host port user pass; do
-    curl -6 --proxy "$host:$port" --proxy-user "$user:$pass" -s "https://api6.ipify.org"
+    log_message "Тестирование прокси $host:$port"
+    
+    # Проверка доступности порта
+    if nc -z -w5 $host $port; then
+        log_message "Порт $port открыт"
+        
+        # Проверка IPv6 через прокси
+        response=$(curl -6 --proxy "$host:$port" --proxy-user "$user:$pass" -s "https://api6.ipify.org")
+        
+        if [[ $response == *"2a10"* ]]; then
+            log_message "Прокси $host:$port РАБОТАЕТ (IPv6: $response)"
+            echo "$host:$port - OK (IPv6: $response)" >> /root/working_proxies.txt
+        else
+            log_message "Прокси $host:$port не использует IPv6"
+            echo "$host:$port - ОШИБКА (Не IPv6)" >> /root/failed_proxies.txt
+        fi
+    else
+        log_message "Порт $port недоступен"
+        echo "$host:$port - ОШИБКА (Порт закрыт)" >> /root/failed_proxies.txt
+    fi
+    
+    # Пауза между проверками
+    sleep 1
 done < /etc/squid/proxies.txt
 
-log_message "Настройка завершена"
+# Вывод итогов
+log_message "Проверка завершена"
+log_message "Результаты сохранены в /root/working_proxies.txt и /root/failed_proxies.txt"
+
