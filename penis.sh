@@ -43,11 +43,15 @@ fi
 log_message "Создание конфигурационного файла для Squid..."
 cat <<EOL > /etc/squid/squid.conf
 # Базовые настройки
-http_port 3128
+http_port 3128 ipv6
 
 # IPv6 настройки
 dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
+
+# Принудительное использование IPv6
 tcp_outgoing_address 2a10:9680:1::1
+prefer_direct off
+dns_v4_first off
 
 # DNS настройки
 client_dst_passthru on
@@ -115,7 +119,7 @@ do
 
     # Настройка порта и ACL
     port=$((3129 + $i))
-    echo "http_port 45.87.246.238:$port name=proxy$i" >> /etc/squid/squid.conf
+    echo "http_port 45.87.246.238:$port ipv6 name=proxy$i" >> /etc/squid/squid.conf
     echo "acl proxy${i}_users myportname proxy$i" >> /etc/squid/squid.conf
     echo "tcp_outgoing_address 2a10:9680:1::$i proxy${i}_users" >> /etc/squid/squid.conf
     check_command "Настройка прокси $i"
@@ -167,9 +171,17 @@ net.ipv6.conf.default.autoconf=0
 net.ipv6.conf.all.disable_ipv6=0
 net.ipv6.conf.default.disable_ipv6=0
 net.ipv6.conf.ens3.disable_ipv6=0
+net.ipv6.conf.all.use_tempaddr=0
+net.ipv6.conf.default.use_tempaddr=0
 EOL
 sysctl -p /etc/sysctl.d/99-ipv6.conf
 check_command "Настройка параметров ядра"
+
+# Проверка IPv6 конфигурации
+log_message "Проверка IPv6 конфигурации..."
+ip -6 addr show
+ip -6 route show
+check_command "Проверка IPv6 конфигурации"
 
 # Добавляем паузу для стабилизации сети
 sleep 3
