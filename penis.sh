@@ -24,7 +24,7 @@ fi
 # Установка необходимых пакетов
 log_message "Установка необходимых пакетов..."
 apt-get update
-apt-get install -y squid apache2-utils iputils-ping net-tools
+apt-get install -y squid apache2-utils iputils-ping net-tools curl
 check_command "Установка пакетов"
 
 # Создание базового конфигурационного файла
@@ -34,21 +34,26 @@ cat <<EOL > /etc/squid/squid.conf
 max_filedesc 500000
 pid_filename /var/run/squid.pid
 
+# Принудительное использование IPv6
+dns_v4_first off
+prefer_direct off
+tcp_outgoing_address_precedence ipv6
+
 # Отключение логов для производительности
 access_log none
 cache_store_log none
 cache deny all
 
 # Настройки IPv6
-dns_v4_first off
 dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
 
-# Принудительное использование IPv6
-acl to_ipv6 dst ipv6
-http_access deny all !to_ipv6
+# ACL для IPv6
+acl ipv6_traffic dst ipv6
+http_access allow ipv6_traffic
+http_access deny all !ipv6_traffic
 
 # Базовый порт
-http_port 3128
+http_port 3128 ipv6
 
 # Защита и оптимизация заголовков
 via off
@@ -89,7 +94,6 @@ auth_param basic casesensitive off
 # Контроль доступа
 acl authenticated proxy_auth REQUIRED
 http_access allow authenticated
-http_access deny all
 
 # Оптимизация
 visible_hostname V6proxies-Net
@@ -123,7 +127,7 @@ do
     # Настройка порта и ACL
     port=$((3129 + $i))
     cat <<EOL >> /etc/squid/squid.conf
-http_port 45.87.246.238:$port
+http_port 45.87.246.238:$port ipv6
 acl p${port} localport $port
 tcp_outgoing_address 2a10:9680:1::$i p${port}
 EOL
@@ -150,6 +154,7 @@ done
 check_command "Настройка адресов интерфейса"
 
 # Маршрутизация
+ip -6 route add local 2a10:9680:1::/48 dev lo
 ip -6 route add 2a10:9680::/48 dev ens3
 ip -6 route add default via 2a10:9680::1 dev ens3 metric 1
 ip -6 route add 2001:4860:4860::8888 via 2a10:9680::1
@@ -193,7 +198,7 @@ while IFS=: read -r host port user pass; do
         log_message "Порт $port открыт"
         
         # Проверка IPv6 через прокси
-        response=$(curl -6 --proxy "$host:$port" --proxy-user "$user:$pass" -s "https://api6.ipify.org")
+        response=$(curl -6 --proxy-insecure --proxy "$host:$port" --proxy-user "$user:$pass" -s "https://api6.ipify.org" --connect-timeout 10)
         
         if [[ $response == *"2a10"* ]]; then
             log_message "Прокси $host:$port РАБОТАЕТ (IPv6: $response)"
@@ -214,4 +219,3 @@ done < /etc/squid/proxies.txt
 # Вывод итогов
 log_message "Проверка завершена"
 log_message "Результаты сохранены в /root/working_proxies.txt и /root/failed_proxies.txt"
-
