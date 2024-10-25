@@ -46,6 +46,8 @@ cat <<EOL > /etc/squid/squid.conf
 http_port 3128
 
 # IPv6 настройки
+dns_v6_first on
+tcp_outgoing_address ::0
 dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
 tcp_outgoing_address 2a10:9680:1::1
 
@@ -138,6 +140,12 @@ log_message "Настройка сетевого интерфейса..."
 ip link set dev ens3 up
 ip -6 addr add 2a10:9680:1::1/48 dev ens3
 ip -6 addr add fe80::1/64 dev ens3 scope link
+
+# Добавление дополнительных IPv6 адресов
+for i in {2..10}; do
+    ip -6 addr add 2a10:9680:1::$i/48 dev ens3
+done
+
 check_command "Настройка адресов интерфейса"
 
 # Настройка маршрутизации
@@ -204,10 +212,10 @@ check_proxy() {
     check_command "Проверка доступности порта $port"
     
     # Проверка с принудительным IPv6
-    local external_ip=$(curl -6 --proxy "$host:$port" --proxy-user "$user:$pass" -s -m 10 --retry 3 --retry-delay 2 -H "Accept: application/json" https://api64.ipify.org?format=json)
+    local external_ip=$(curl -6 --proxy-insecure --proxy "$host:$port" --proxy-user "$user:$pass" -s -m 10 --retry 3 --retry-delay 2 "https://api6.ipify.org")
     
     if [[ $external_ip == *"2a10"* ]]; then
-        ip=$(echo $external_ip | grep -o '"ip":"[^"]*' | cut -d'"' -f4)
+        ip=$external_ip
         log_message "Прокси $host:$port РАБОТАЕТ (IPv6: $ip)"
         echo "$ip" >> /tmp/proxy_ips.txt
         return 0
