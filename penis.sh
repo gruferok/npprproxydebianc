@@ -34,11 +34,6 @@ cat <<EOL > /etc/squid/squid.conf
 max_filedesc 500000
 pid_filename /var/run/squid.pid
 
-# Принудительное использование IPv6
-dns_v4_first off
-prefer_direct off
-tcp_outgoing_address_precedence ipv6
-
 # Отключение логов для производительности
 access_log none
 cache_store_log none
@@ -50,10 +45,9 @@ dns_nameservers 2001:4860:4860::8888 2001:4860:4860::8844
 # ACL для IPv6
 acl ipv6_traffic dst ipv6
 http_access allow ipv6_traffic
-http_access deny all !ipv6_traffic
 
 # Базовый порт
-http_port 3128 ipv6
+http_port 3128
 
 # Защита и оптимизация заголовков
 via off
@@ -127,7 +121,7 @@ do
     # Настройка порта и ACL
     port=$((3129 + $i))
     cat <<EOL >> /etc/squid/squid.conf
-http_port 45.87.246.238:$port ipv6
+http_port 45.87.246.238:$port
 acl p${port} localport $port
 tcp_outgoing_address 2a10:9680:1::$i p${port}
 EOL
